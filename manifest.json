@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.2.3.1",
+        "changelog": "Share stream analysis across aliases of the active input, refresh unavailable match cards, and add optional H.264/AAC MPEG-TS playback compatibility for iOS without changing quality. Shorter HLS segments remain experimental and disabled by default.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.2.3.1/Tipsport_0.2.3.1.zip",
+        "checksum": "7693f9bf212cb3a9d5f12ea6091aa642",
+        "timestamp": "2026-11-01T00:00:00Z"
+      },
+      {
         "version": "0.2.2.0",
         "changelog": "Startup stage timing, first-data freshness and bounded replay diagnostics; optional near-live HLS startup without reducing source quality.",
         "targetAbi": "12.4.0.0",
