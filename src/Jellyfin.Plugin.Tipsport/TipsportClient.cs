@@ -17,6 +17,7 @@ public sealed class TipsportClient : IDisposable
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<SportMatch>? _cached;
+    internal IReadOnlyList<SportMatch> KnownCatalogue => _cached ?? [];
     private DateTimeOffset _cacheUntil;
     private string _cachedRegion = "";
     private bool _streamWarning;

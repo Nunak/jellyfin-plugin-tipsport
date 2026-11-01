@@ -20,9 +20,8 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
     private readonly string _aliasPath = Path.Combine(paths.PluginConfigurationsPath, "Tipsport.private", "links.json");
     private Dictionary<string, string>? _aliases;
 
-    public async Task Prepare(IReadOnlyList<ChannelItemInfo> items, IReadOnlyList<SportMatch> matches, CancellationToken token)
+    public async Task Prepare(IReadOnlyList<ChannelItemInfo> items, IReadOnlyList<SportMatch> matches, CancellationToken token, string? activeMatchId = null)
     {
-        if (!items.Any(i => i.Type == ChannelItemType.Media)) return;
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
@@ -33,6 +32,7 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
             _aliases ??= File.Exists(_aliasPath)
                 ? JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(_aliasPath, token).ConfigureAwait(false)) ?? new()
                 : new();
+            await RefreshUnavailable(existing, matches, activeMatchId, token).ConfigureAwait(false);
             var changed = false;
             var planned = new List<(ChannelItemInfo Info, SportMatch? Match)>();
             foreach (var info in items.Where(i => i.Type == ChannelItemType.Media))
@@ -71,6 +71,7 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
                 { item.Name = info.Name; update |= ItemUpdateType.MetadataEdit; }
                 if (!item.LockedFields.Contains(MetadataField.Overview) && item.Overview != info.Overview)
                 { item.Overview = info.Overview; update |= ItemUpdateType.MetadataEdit; }
+                if (match != null && item.ProviderIds.Remove("TipsportAvailability")) update |= ItemUpdateType.MetadataEdit;
                 if (match != null && (!item.ProviderIds.TryGetValue(ArtworkKey, out var saved) || saved != revision))
                 {
                     using var png = new MemoryStream(await artwork.Get(match).ConfigureAwait(false), false);
@@ -88,4 +89,44 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
         }
         finally { _gate.Release(); }
     }
+    private async Task RefreshUnavailable(IReadOnlyList<BaseItem> existing, IReadOnlyList<SportMatch> matches, string? activeMatchId, CancellationToken token)
+    {
+        var offered = matches.ToDictionary(m => m.Id, StringComparer.Ordinal);
+        foreach (var item in existing)
+        {
+            if (item.IsLocked || (item.ExternalId ?? "").StartsWith("current-", StringComparison.Ordinal)) continue;
+            var id = Favourites.MatchId(item.ExternalId ?? "");
+            if (id == null || id == activeMatchId) continue;
+            offered.TryGetValue(id, out var match);
+            if (match is { Ended: false }) continue;
+            var state = match?.Ended == true ? "SKONČENO" : "MIMO NABÍDKU";
+            var revision = "availability:" + state;
+            if (item.ProviderIds.GetValueOrDefault("TipsportAvailability") == revision) continue;
+            var name = match?.Name ?? OriginalName(item.Name);
+            var update = ItemUpdateType.None;
+            if (!item.LockedFields.Contains(MetadataField.Name))
+            { item.Name = state + " · " + name; update |= ItemUpdateType.MetadataEdit; }
+            if (!item.LockedFields.Contains(MetadataField.Overview))
+            {
+                item.Overview = match?.Ended == true ? "Poskytovatel označil tento přenos jako skončený. Vyberte jiný živý zápas."
+                    : "Tento přenos není v aktuální nabídce poskytovatele. Mohl skončit nebo být stažen. Obnovte nabídku a vyberte dostupný přenos.";
+                update |= ItemUpdateType.MetadataEdit;
+            }
+            var picture = match ?? new SportMatch(id, name, "", "Sportovní přenos", "", false, null);
+            using var png = new MemoryStream(await artwork.Get(picture, state).ConfigureAwait(false), false);
+            await providers.SaveImage(item, png, "image/png", ImageType.Primary, null, token).ConfigureAwait(false);
+            item.ProviderIds["TipsportAvailability"] = revision;
+            item.ProviderIds[ArtworkKey] = revision;
+            update |= ItemUpdateType.ImageUpdate;
+            item.OnMetadataChanged();
+            await library.UpdateItemAsync(item, item.GetParent(), update, token).ConfigureAwait(false);
+        }
+    }
+    private static string OriginalName(string name)
+    {
+        foreach (var prefix in new[] { "ŽIVĚ · ", "ČEKÁME · ", "SKONČENO · ", "MIMO NABÍDKU · " })
+            if (name.StartsWith(prefix, StringComparison.Ordinal)) return name[prefix.Length..];
+        return name;
+    }
+
 }

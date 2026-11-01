@@ -104,5 +104,51 @@ public sealed class StableCatalogueTests : IDisposable
         Assert.Equal("favourite", info.Id); Assert.Equal("0000", item.ForcedSortName);
         Assert.Empty(_providers.Invocations);
     }
+    [Fact]
+    public async Task ExplicitEndUpdatesOldCardEvenWhenItIsNotInReturnedPage()
+    {
+        var item = new Video { Id = Guid.NewGuid(), ExternalId = "event-live-123", Name = "ŽIVĚ · Brno - Olomouc" };
+        var id = item.Id; _existing.Add(item); var sync = Create();
+        await sync.Prepare([], [Match(true) with { Ended = true }], default);
+        Assert.Equal(id, item.Id); Assert.Equal("event-live-123", item.ExternalId);
+        Assert.Equal("SKONČENO · Brno - Olomouc", item.Name);
+        Assert.Contains("skončený", item.Overview);
+        _providers.Verify(p => p.SaveImage(item, It.IsAny<Stream>(), "image/png", ImageType.Primary, null, It.IsAny<CancellationToken>()), Times.Once);
+        await sync.Prepare([], [Match(true) with { Ended = true }], default);
+        _library.Verify(l => l.UpdateItemAsync(item, It.IsAny<BaseItem>(), It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+    [Fact]
+    public async Task MissingMatchIsUnavailableWithoutInventingAnEndAndCanReturn()
+    {
+        var item = new Video { Id = Guid.NewGuid(), ExternalId = "match-123", Name = "ŽIVĚ · Brno - Olomouc" };
+        _existing.Add(item); var sync = Create();
+        await sync.Prepare([], [], default);
+        Assert.Equal("MIMO NABÍDKU · Brno - Olomouc", item.Name);
+        Assert.DoesNotContain("označil", item.Overview);
+        var info = Info(true); await sync.Prepare([info], [Match(true)], default);
+        Assert.Equal(info.Name, item.Name); Assert.False(item.ProviderIds.ContainsKey("TipsportAvailability"));
+        await sync.Prepare([], [], default);
+        Assert.Equal("MIMO NABÍDKU · Brno - Olomouc", item.Name);
+    }
+    [Fact]
+    public async Task MissingActiveInputAndNowWatchingLinkArePreserved()
+    {
+        var item = new Video { ExternalId = "match-123", Name = "ŽIVĚ · Brno - Olomouc" };
+        var temporary = new Video { ExternalId = "current-999-1", Name = "PRÁVĚ SE SLEDUJE" };
+        _existing.AddRange([item, temporary]);
+        await Create().Prepare([], [], default, "123");
+        Assert.Equal("ŽIVĚ · Brno - Olomouc", item.Name); Assert.Equal("PRÁVĚ SE SLEDUJE", temporary.Name);
+        Assert.Empty(_providers.Invocations);
+    }
+    [Fact]
+    public async Task AvailabilityRefreshRespectsLockedFieldsAndNeverMarksOldStartAsEnded()
+    {
+        var item = new Video { ExternalId = "match-123", Name = "Vlastní", Overview = "Popis", LockedFields = [MetadataField.Name, MetadataField.Overview] };
+        _existing.Add(item); var sync = Create();
+        await sync.Prepare([], [Match() with { Start = DateTimeOffset.UtcNow.AddDays(-3) }], default);
+        Assert.Empty(_providers.Invocations); Assert.Equal("Vlastní", item.Name);
+        await sync.Prepare([], [Match() with { Ended = true }], default);
+        Assert.Equal("Vlastní", item.Name); Assert.Equal("Popis", item.Overview);
+    }
     public void Dispose() { _artwork.Dispose(); if (Directory.Exists(_root)) Directory.Delete(_root, true); }
 }

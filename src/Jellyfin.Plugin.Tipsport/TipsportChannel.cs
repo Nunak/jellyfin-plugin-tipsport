@@ -14,12 +14,12 @@ using MediaBrowser.Model.MediaInfo;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay, StableCatalogueItems catalogueItems, ILogger<TipsportChannel> logger)
+public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay, StableCatalogueItems catalogueItems, ILogger<TipsportChannel> logger, LiveMetadataCache metadataCache)
     : IChannel, IRequiresMediaInfoCallback, IHasCacheKey
 {
     public string Name => "Tipsport";
     public string Description => "Živé sportovní přenosy z vlastního účtu Tipsport.";
-    public string DataVersion => "6";
+    public string DataVersion => "7";
     public string HomePageUrl => TipsportClient.Origin(Config.Region);
     public ChannelParentalRating ParentalRating => ChannelParentalRating.GeneralAudience;
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
@@ -96,7 +96,7 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
             }
         }
         var paged = items.Skip(query.StartIndex ?? 0).Take(query.Limit ?? items.Count).ToArray();
-        await catalogueItems.Prepare(paged, matches, token).ConfigureAwait(false);
+        await catalogueItems.Prepare(paged, client.KnownCatalogue, token, relay.Status.Active ? relay.Status.MatchId : null).ConfigureAwait(false);
         return new() { Items = paged, TotalRecordCount = items.Count };
     }
     private string Artwork(string kind) => LocalBase(host) + "/Plugins/Tipsport/artwork/" + kind + ".png";
@@ -137,19 +137,23 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         // minutes analyzing a live input and build an unsuitable transcoding command.
         using var probe = CancellationTokenSource.CreateLinkedTokenSource(token);
         probe.CancelAfter(TimeSpan.FromSeconds(30));
-        var timer = Stopwatch.StartNew();
-        source.MediaStreams = await LiveProbe.Read(async (duration, ct) =>
+        source.MediaStreams = await metadataCache.Get(match.Id, () => relay.Status, async ct =>
         {
-            source.AnalyzeDurationMs = duration;
-            var media = await encoder.GetMediaInfo(new MediaInfoRequest
+            var timer = Stopwatch.StartNew();
+            var streams = await LiveProbe.Read(async (duration, probeToken) =>
             {
-                MediaSource = source, MediaType = MediaBrowser.Model.Dlna.DlnaProfileType.Video, ExtractChapters = false
+                source.AnalyzeDurationMs = duration;
+                var media = await encoder.GetMediaInfo(new MediaInfoRequest
+                {
+                    MediaSource = source, MediaType = MediaBrowser.Model.Dlna.DlnaProfileType.Video, ExtractChapters = false
+                }, probeToken).ConfigureAwait(false);
+                return media.MediaStreams.ToList();
             }, ct).ConfigureAwait(false);
-            return media.MediaStreams.ToList();
+            client.RecordProbe(match.Id, timer.ElapsedMilliseconds);
+            logger.LogInformation("Tipsport stream analysis completed in {ElapsedMs} ms", timer.ElapsedMilliseconds);
+            return streams;
         }, probe.Token).ConfigureAwait(false);
         source.AnalyzeDurationMs = 3000;
-        client.RecordProbe(match.Id, timer.ElapsedMilliseconds);
-        logger.LogInformation("Tipsport stream analysis completed in {ElapsedMs} ms", timer.ElapsedMilliseconds);
         StreamBitrates.Apply(source, client.KnownSourceBitrate(match.Id));
         source.SupportsDirectPlay = false;
         source.SupportsDirectStream = false;

@@ -28,5 +28,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public bool IncludeMatchesInPlaylist { get; set; }
     public int MaximumHeight { get; set; }
     public bool LowLatencyStart { get; set; }
+    public bool ShortHlsSegments { get; set; }
+    public bool IosTransportStream { get; set; }
     public string SportIds { get; set; } = "";
 }

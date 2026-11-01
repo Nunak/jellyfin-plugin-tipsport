@@ -29,5 +29,7 @@ public sealed class DiagnosticsTests
     {
         Assert.Equal(0, new PluginConfiguration().MaximumHeight);
         Assert.False(new PluginConfiguration().LowLatencyStart);
+        Assert.False(new PluginConfiguration().ShortHlsSegments);
+        Assert.False(new PluginConfiguration().IosTransportStream);
     }
 }

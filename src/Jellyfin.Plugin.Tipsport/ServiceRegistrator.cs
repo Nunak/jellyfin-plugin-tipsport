@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Plugins;
@@ -10,6 +11,9 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection services, IServerApplicationHost host)
     {
+        services.AddTransient<TipsportPlaybackFilter>();
+        services.Configure<MvcOptions>(options => options.Filters.AddService<TipsportPlaybackFilter>());
+        services.AddSingleton<LiveMetadataCache>();
         services.AddSingleton<SessionStore>();
         services.AddSingleton<TipsportClient>();
         services.AddSingleton<MatchArtwork>();

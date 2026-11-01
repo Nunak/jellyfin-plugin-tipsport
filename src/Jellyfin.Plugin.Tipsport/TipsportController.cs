@@ -10,13 +10,13 @@ namespace Jellyfin.Plugin.Tipsport;
 
 [ApiController]
 [Route("Plugins/Tipsport")]
-public sealed class TipsportController(TipsportClient client, SessionStore sessions, SharedRelay relay, IServerApplicationHost host, MatchArtwork artwork) : ControllerBase
+public sealed class TipsportController(TipsportClient client, SessionStore sessions, SharedRelay relay, IServerApplicationHost host, MatchArtwork artwork, LiveMetadataCache metadataCache) : ControllerBase
 {
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
 
     [HttpGet("status")]
     [Authorize(Policy = Policies.RequiresElevation)]
-    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, ProbeMs = client.KnownProbeMs(relay.Status.MatchId), CurrentMatchName = client.KnownMatchName(relay.Status.MatchId), Quality = client.LastQuality, Warning = client.LastWarning, client.LastSuccessfulCatalogue, client.LastFailure, QualityMatchId = client.QualityMatchId, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u", GuideUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/guide.xml" };
+    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, MetadataCache = new { metadataCache.Hits, metadataCache.Misses }, ProbeMs = client.KnownProbeMs(relay.Status.MatchId), CurrentMatchName = client.KnownMatchName(relay.Status.MatchId), Quality = client.LastQuality, Warning = client.LastWarning, client.LastSuccessfulCatalogue, client.LastFailure, QualityMatchId = client.QualityMatchId, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u", GuideUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/guide.xml" };
 
     [HttpGet("diagnostics")]
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -24,7 +24,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
     {
         Response.Headers.CacheControl = "no-store";
         return Ok(Diagnostics.Create(Config, sessions.HasSession, relay.Status, client.LastQuality,
-            client.LastWarning != null, client.LastSuccessfulCatalogue, client.LastFailure, client.KnownProbeMs(relay.Status.MatchId)));
+            client.LastWarning != null, client.LastSuccessfulCatalogue, client.LastFailure, client.KnownProbeMs(relay.Status.MatchId), metadataCache.Hits, metadataCache.Misses));
     }
 
     public sealed record SessionRequest(string Session);

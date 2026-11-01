@@ -31,18 +31,18 @@ public sealed class MatchArtwork : IDisposable
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or IOException) { return null; }
     }
-    public async Task<byte[]> Get(SportMatch match)
+    public async Task<byte[]> Get(SportMatch match, string? badge = null)
     {
-        var key = match.Id + "|" + match.Name + "|" + match.Live + "|" + match.Start + "|" + match.Sport;
+        var key = match.Id + "|" + match.Name + "|" + match.Live + "|" + match.Start + "|" + match.Sport + "|" + match.Ended + "|" + badge;
         if (_cache.TryGetValue(key, out var cached)) return cached;
         byte[]? logo = match.Name.Contains("Kometa", StringComparison.OrdinalIgnoreCase) ? await _logo.Value.ConfigureAwait(false) : null;
-        var png = Render(match, logo);
+        var png = Render(match, logo, badge);
         // Avoid an unbounded cache when catalogue IDs change over many days.
         if (_cache.Count >= 256) _cache.Clear();
         _cache[key] = png;
         return png;
     }
-    internal static byte[] Render(SportMatch match, byte[]? logo = null)
+    internal static byte[] Render(SportMatch match, byte[]? logo = null, string? badge = null)
     {
         using var bitmap = new SKBitmap(960, 540);
         using var canvas = new SKCanvas(bitmap);
@@ -56,7 +56,7 @@ public sealed class MatchArtwork : IDisposable
         using var border = new SKPaint { Color = new SKColor(255, 255, 255, 38), Style = SKPaintStyle.Stroke, StrokeWidth = 2, IsAntialias = true };
         canvas.DrawRoundRect(new SKRect(42, 35, 918, 505), 22, 22, border);
         canvas.DrawCircle(75, 79, 10, accent);
-        canvas.DrawText(match.Live ? "ŽIVĚ" : "PŘIPRAVUJEME", 100, 90, font, accent);
+        canvas.DrawText(badge ?? (match.Ended ? "SKONČENO" : match.Live ? "ŽIVĚ" : "PŘIPRAVUJEME"), 100, 90, font, accent);
         font.Size = 24;
         canvas.DrawText(Fit(match.SportGroup.Length > 0 ? match.SportGroup : match.Sport, font, 650), 65, 135, font, paint);
         using var logoBitmap = logo == null ? null : SKBitmap.Decode(logo);

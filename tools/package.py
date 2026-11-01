@@ -15,7 +15,7 @@ out = root / ".artifacts"
 folder = out / name
 folder.mkdir(parents=True, exist_ok=True)
 meta = {
-    "category": "Live TV", "changelog": "Startup stage timing, first-data freshness and bounded replay diagnostics; optional near-live HLS startup without reducing source quality.",
+    "category": "Live TV", "changelog": "Share stream analysis across aliases of the active input, refresh unavailable match cards, and add optional H.264/AAC MPEG-TS playback compatibility for iOS without changing quality. Shorter HLS segments remain experimental and disabled by default.",
     "description": "Unofficial Tipsport catalogue and shared live streaming using your own account.",
     "guid": "7c761c82-7b32-4b82-bb8f-49a6b0f319e7", "name": "Tipsport", "overview": "Native sports catalogue and one shared input",
     "owner": "Nunak", "status": "Active", "targetAbi": "12.4.0.0", "timestamp": "2026-11-01T00:00:00Z", "version": version
