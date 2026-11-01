@@ -20,7 +20,9 @@ public sealed class FfmpegSourceFactory(IMediaEncoder encoder) : IRelaySourceFac
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
         foreach (var arg in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-rw_timeout", "15000000", "-user_agent", TipsportClient.UserAgent,
-            "-i", uri.AbsoluteUri, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-mpegts_flags", "+resend_headers", "-f", "mpegts", "pipe:1" }) start.ArgumentList.Add(arg);
+            // Automatic selection chooses the highest-resolution video, rather than
+            // the first (potentially low-quality) rendition of an HLS master playlist.
+            "-i", uri.AbsoluteUri, "-sn", "-dn", "-c", "copy", "-mpegts_flags", "+resend_headers", "-f", "mpegts", "pipe:1" }) start.ArgumentList.Add(arg);
         // No shell, command logging, stderr logging, or downloaded executable.
         var process = Process.Start(start) ?? throw new TipsportException("FFmpeg se nepodařilo spustit.");
         process.StandardInput.Close();

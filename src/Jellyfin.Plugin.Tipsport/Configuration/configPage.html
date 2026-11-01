@@ -25,6 +25,7 @@
     <button is="emby-button" type="button" id="TipsportImport" class="raised block"><span>Převzít existující relaci z Kodi na tomto serveru</span></button>
     <h3>Ověření</h3>
     <p id="TipsportStatus" role="status" aria-live="polite"></p>
+    <p id="TipsportQuality" role="status" aria-live="polite"></p>
     <button is="emby-button" type="button" id="TipsportTest" class="raised block"><span>Ověřit přihlášení a načíst nabídku</span></button>
     <div class="inputContainer"><label class="inputLabel" for="TipsportPlaylist">Adresa M3U pro TV tuner na tomto serveru</label><input is="emby-input" id="TipsportPlaylist" type="text" readonly><div class="fieldDescription">V TV nastavení lze přidat M3U tuner s touto adresou. Limit vstupů nastavte na 1 a povolte sdílení. Nabídka sportů funguje i přes knihovnu Tipsport.</div></div>
   </div></div>
@@ -52,6 +53,7 @@
     function status() { return api('status').then(function (s) {
       field('Status').textContent = (s.HasSession ? 'Relace je uložená. ' : 'Relace zatím není uložená. ') + (s.Relay.Active ? 'Běží jeden sdílený vstup. Připojení Jellyfinu: ' + s.Relay.Readers + '.' : 'Žádný přenos právě neběží.') + ' Spuštění zdroje od startu serveru: ' + s.Relay.Acquisitions + '.';
       field('Playlist').value = s.PlaylistUrl;
+      field('Quality').textContent = s.Quality || '';
     }); }
     page.addEventListener('pageshow', function () {
       ApiClient.getPluginConfiguration(id).then(function (c) {

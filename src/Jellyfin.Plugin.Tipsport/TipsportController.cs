@@ -16,7 +16,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
 
     [HttpGet("status")]
     [Authorize(Policy = Policies.RequiresElevation)]
-    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u" };
+    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, Quality = client.LastQuality, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u" };
 
     public sealed record SessionRequest(string Session);
     [HttpPost("session")]
@@ -63,12 +63,14 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
             var matches = await client.GetMatches(token).ConfigureAwait(false);
             var rows = new StringBuilder("#EXTM3U\n");
             var origin = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/stream/";
-            void Add(string id, string name, string group)
+            void Add(string id, string name, string group, string? logo = null)
             {
-                rows.Append("#EXTINF:-1 tvg-id=\"tipsport.").Append(id).Append("\" group-title=\"").Append(Clean(group)).Append("\",").Append(Clean(name)).Append('\n');
+                rows.Append("#EXTINF:-1 tvg-id=\"tipsport.").Append(id).Append('"');
+                if (logo != null) rows.Append(" tvg-logo=\"").Append(logo).Append('"');
+                rows.Append(" group-title=\"").Append(Clean(group)).Append("\",").Append(Clean(name)).Append('\n');
                 rows.Append(origin).Append(id).Append(".ts\n");
             }
-            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam)) Add("favourite", "Tipsport – " + Config.FavouriteTeam, "Tipsport");
+            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam)) Add("favourite", "Tipsport – " + Config.FavouriteTeam, "Tipsport", TeamArtwork.ForTeam(Config.FavouriteTeam));
             if (Config.IncludeTennisTest) Add("test-tennis", "Tipsport – test tenisu", "Tipsport");
             if (Config.IncludeMatchesInPlaylist)
                 foreach (var match in matches.Where(m => m.Live)) Add(match.Id, "ŽIVĚ · " + match.Name, match.SportGroup);

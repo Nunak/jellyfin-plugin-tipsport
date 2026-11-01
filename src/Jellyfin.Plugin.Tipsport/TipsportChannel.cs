@@ -17,7 +17,7 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
 {
     public string Name => "Tipsport";
     public string Description => "Živé sportovní přenosy z vlastního účtu Tipsport.";
-    public string DataVersion => "1";
+    public string DataVersion => "2";
     public string HomePageUrl => TipsportClient.Origin(Config.Region);
     public ChannelParentalRating ParentalRating => ChannelParentalRating.GeneralAudience;
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
@@ -45,7 +45,12 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         var matches = await client.GetMatches(token).ConfigureAwait(false);
         if (string.IsNullOrEmpty(query.FolderId))
         {
-            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam)) items.Add(Media("favourite", Config.FavouriteTeam + " – živý přenos", "Přehraje právě živý zápas vybraného týmu. Mimo zápas se přenos nespustí."));
+            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam))
+            {
+                var favourite = Media("favourite", Config.FavouriteTeam + " – živý přenos", "Přehraje právě živý zápas vybraného týmu. Mimo zápas se přenos nespustí.");
+                favourite.ImageUrl = TeamArtwork.ForTeam(Config.FavouriteTeam);
+                items.Add(favourite);
+            }
             items.Add(Folder("live", "Právě živě"));
             if (Config.ShowUpcoming) items.Add(Folder("upcoming", "Připravované zápasy"));
             foreach (var sport in matches.GroupBy(m => m.SportId).OrderBy(g => g.First().SportGroup))

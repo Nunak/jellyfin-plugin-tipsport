@@ -14,6 +14,7 @@ public sealed class TipsportClient : IDisposable
     private IReadOnlyList<SportMatch>? _cached;
     private DateTimeOffset _cacheUntil;
     private string _cachedRegion = "";
+    public string? LastQuality { get; private set; }
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
     public TipsportClient(SessionStore sessions)
     {
@@ -57,16 +58,34 @@ public sealed class TipsportClient : IDisposable
         if (type == "URL_IMG")
         {
             using var external = await Fetch(target, false, token).ConfigureAwait(false);
-            return CheckedUri(Catalogue.Text(external.RootElement, "hlsUrl"));
+            return await BestQuality(CheckedUri(Catalogue.Text(external.RootElement, "hlsUrl")), token).ConfigureAwait(false);
         }
         if (type == "URL_TVCOM")
         {
             using var external = await Fetch(target, false, token).ConfigureAwait(false);
-            if (external.RootElement.TryGetProperty("url", out var url) && url.TryGetProperty("hls", out var hls)) return CheckedUri(Catalogue.Text(hls, "url"));
+            if (external.RootElement.TryGetProperty("url", out var url) && url.TryGetProperty("hls", out var hls)) return await BestQuality(CheckedUri(Catalogue.Text(hls, "url")), token).ConfigureAwait(false);
             throw new TipsportException("Poskytovatel neposkytl HLS přenos.");
         }
         if (type.Contains("URL", StringComparison.Ordinal)) throw new TipsportException("Tento typ přenosu plugin nepodporuje.");
-        return target;
+        return await BestQuality(target, token).ConfigureAwait(false);
+    }
+    private async Task<Uri> BestQuality(Uri uri, CancellationToken token)
+    {
+        LastQuality = null;
+        if (ProviderHttp.CurlPath is not { } curl) { LastQuality = "Systémový curl není dostupný; výběr kvality provádí FFmpeg."; return uri; }
+        try
+        {
+            var text = await ProviderHttp.FetchText(curl, uri, null, token).ConfigureAwait(false);
+            var choice = HlsQuality.Select(uri, text);
+            LastQuality = choice.Description;
+            return choice.Uri;
+        }
+        catch (Exception e) when (e is TipsportException or HttpRequestException or SocketException or System.ComponentModel.Win32Exception)
+        {
+            // FFmpeg also supports redirects and non-HLS sources. Never expose signed URLs.
+            LastQuality = "Playlist nelze předem vyhodnotit; výběr kvality provádí FFmpeg.";
+            return uri;
+        }
     }
     private async Task<JsonDocument> Fetch(Uri uri, bool authenticated, CancellationToken token)
     {

@@ -16,6 +16,13 @@ internal static class ProviderHttp
 
     internal static async Task<JsonDocument> Fetch(string executable, Uri uri, string? session, CancellationToken token)
     {
+        var body = await FetchText(executable, uri, session, token).ConfigureAwait(false);
+        try { return JsonDocument.Parse(body); }
+        catch (JsonException) { throw new TipsportException("Poskytovatel nevrátil rozpoznanou odpověď."); }
+    }
+
+    internal static async Task<string> FetchText(string executable, Uri uri, string? session, CancellationToken token)
+    {
         TipsportClient.CheckedUri(uri.AbsoluteUri);
         if (session != null && uri.Host is not ("www.tipsport.cz" or "www.tipsport.sk"))
             throw new TipsportException("Relace smí být poslána pouze Tipsportu.");
@@ -63,7 +70,7 @@ internal static class ProviderHttp
             await drainError.ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             if (process.ExitCode != 0) throw new TipsportException("Systémový HTTP klient přenos nedokončil (kód " + process.ExitCode + ").");
-            return Parse(output.ToArray());
+            return ParseText(output.ToArray());
         }
         finally
         {
@@ -78,6 +85,11 @@ internal static class ProviderHttp
     internal static string Escape(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
     internal static JsonDocument Parse(byte[] output)
     {
+        try { return JsonDocument.Parse(ParseText(output)); }
+        catch (JsonException) { throw new TipsportException("Poskytovatel nevrátil rozpoznanou odpověď."); }
+    }
+    internal static string ParseText(byte[] output)
+    {
         if (output.Length < 4 || output[^4] != (byte)'\n' || !int.TryParse(Encoding.ASCII.GetString(output[^3..]), out var status))
             throw new TipsportException("HTTP klient nevrátil stav odpovědi.");
         if (status is < 200 or >= 300)
@@ -87,7 +99,6 @@ internal static class ProviderHttp
                 throw new TipsportException("Webová ochrana Tipsportu vyžaduje ověření v prohlížeči. Relace samotná pro tento HTTP klient nestačí.");
             throw new TipsportException("Poskytovatel vrátil HTTP " + status + ". Ověřte přihlášenou relaci a dostupnost služby.");
         }
-        try { return JsonDocument.Parse(output.AsMemory(0, output.Length - 4)); }
-        catch (JsonException) { throw new TipsportException("Poskytovatel nevrátil rozpoznanou odpověď."); }
+        return Encoding.UTF8.GetString(output, 0, output.Length - 4);
     }
 }

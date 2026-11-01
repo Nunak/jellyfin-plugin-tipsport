@@ -6,10 +6,12 @@ Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10*
 
 - Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu.
 - Stálá položka pro oblíbený tým, například Kometu.
+- Pro oblíbený tým `Kometa` nebo `HC Kometa Brno` načítá oficiální klubové logo (také přes `tvg-logo` v M3U).
 - Volitelný výstup M3U pro standardní TV vysílání Jellyfinu.
 - Jeden vstup od poskytovatele, který může sdílet více místních přehrávačů Jellyfinu.
 - Když už běží jiný zápas, nový nezávislý vstup odmítne. Stejný zápas z položky týmu i ze seznamu používá stejný vstup.
 - Převod HLS do MPEG-TS přes FFmpeg dodaný s Jellyfinem, pomocí `-c copy`. Překódování pro konkrétní zařízení dál zajišťuje Jellyfin.
+- Z HLS master playlistu vybírá nejvyšší dostupné rozlišení a při shodě vyšší datový tok. U odděleného zvuku nebo nepřístupného playlistu ponechá výběr FFmpegu. Diagnostika pluginu ukazuje nabídnuté varianty, bez podepsaných adres. Nízké rozlišení samotného zdroje plugin nenavyšuje.
 - Pro požadavky na API používá systémový `curl`, pokud je dostupný (na Windows `%SystemRoot%\System32\curl.exe`, na Linuxu `/usr/bin/curl` nebo `/bin/curl`). Umožňuje požadavky GET bez těla s hlavičkou Content-Type. Bez něj použije klienta .NET; kompatibilitu s webovou ochranou poskytovatele je nutné ověřit. Cookie předává procesu přes standardní vstup, nikdy v argumentech, a zachovává kontrolu HTTPS certifikátů.
 
 ## První nastavení
@@ -24,7 +26,7 @@ Katalog nabízí pouze zveřejněná vydání. Plugin lze instalovat z katalogu 
 
 Pro ruční testovací instalaci:
 
-1. Zastavte Jellyfin, vytvořte v jeho adresáři pluginů složku `Tipsport_0.1.0.0`, rozbalte do ní obsah instalačního ZIPu a server znovu spusťte. Před nasazením zálohujte konfiguraci. Na Windows s tray instalací jde obvykle o `%ProgramData%\Jellyfin\Server\plugins`.
+1. Zastavte Jellyfin, vytvořte v jeho adresáři pluginů složku odpovídající verzi ZIPu, rozbalte do ní jeho obsah a server znovu spusťte. Před nasazením zálohujte konfiguraci. Na Windows s tray instalací jde obvykle o `%ProgramData%\Jellyfin\Server\plugins`. Při ruční aktualizaci odstraňte starou složku pluginu, aby nezůstaly dvě kopie DLL.
 2. V administraci otevřete **Pluginy → Tipsport** a zapněte plugin. Vyberte český nebo slovenský účet.
 3. V běžném prohlížeči se přihlaste k Tipsportu. Do nastavení pluginu vložte **hodnotu cookie JSESSIONID**, nikoli heslo k účtu. Uložte relaci a ověřte načtení nabídky.
 4. Při přechodu z původního Kodi doplňku lze jednorázově převzít jeho soubor relace tlačítkem v nastavení. Hledá se výhradně standardní profil Kodi stejného uživatele Windows, pod kterým běží Jellyfin. Kodi při tom nemusí běžet.
@@ -70,6 +72,8 @@ Výstup vznikne v `.artifacts`. Sestavení je nezávislé na konkrétní instala
 Testy pokrývají parsování programu bez skóre, výběr správného živého zápasu, více současných čtenářů, odmítnutí druhého zápasu, dokončení starého vstupu před spuštěním nového, uvolnění po posledním divákovi, šifrované uložení relace, omezení interních rozhraní a oprávnění správce. Síťové testy s reálným účtem a zařízeními jsou samostatný krok; jednotkové testy je nenahrazují.
 
 ## Stav vydání
+
+Verze **0.1.1.0** přidává logo Komety a výběr HLS variant. Dne 1. 11. 2026 bylo na stejné Windows instalaci ověřeno přehrávání a diagnostika skutečného master playlistu: pro aktuální testovací tenis nabízel 512×288 a 320×180; zvoleno bylo 512×288 / 856 kbit/s. Jedná se o omezení této konkrétní nabídky, nikoli důkaz maximální kvality jiných zápasů. Automatická sada obsahuje 56 úspěšných testů, včetně pořadí variant, shodného rozlišení, odděleného zvuku a odmítnutí interních či nešifrovaných adres.
 
 Verze **0.1.0.0** je experimentální první vydání. Dne 1. 11. 2026 bylo ověřeno načtení na Windows / Jellyfin 12.4, převzetí existující relace, skutečný tenisový přenos bez běžícího Kodi, souběh prohlížečů a Samsung Tizen TV a zachování nastavení po restartu. Automatická sada obsahuje 47 úspěšných testů. Kompatibilita se staršími Jellyfin 10.x a provoz na Linuxu nebyly ověřeny. Dlouhodobá stabilita vyžaduje další provozní zkušenosti.
 
