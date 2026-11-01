@@ -12,7 +12,7 @@
         "changelog": "Live-source bitrate metadata, shorter startup analysis with fallback, immediate relay output flushing and safe probe timing.",
         "targetAbi": "12.4.0.0",
         "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.2.1.2/Tipsport_0.2.1.2.zip",
-        "checksum": "90080ef6d49e6a9ececfa3e833c6ded3",
+        "checksum": "45ab1e1f20ed9849b02c3f817ad9f4aa",
         "timestamp": "2026-11-01T00:00:00Z"
       },
       {
