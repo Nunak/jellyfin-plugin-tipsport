@@ -28,6 +28,10 @@ public sealed class TipsportClient : IDisposable
     public DateTimeOffset? LastSuccessfulCatalogue { get; private set; }
     public DateTimeOffset? LastFailure { get; private set; }
     public string? LastQuality { get; private set; }
+    private string? _probeMatchId;
+    private long _probeMs;
+    internal long? KnownProbeMs(string? matchId) => matchId != null && _probeMatchId == matchId ? Interlocked.Read(ref _probeMs) : null;
+    internal void RecordProbe(string matchId, long elapsedMs) { Interlocked.Exchange(ref _probeMs, elapsedMs); _probeMatchId = matchId; }
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
     public TipsportClient(SessionStore sessions, IServerApplicationHost host)
     {

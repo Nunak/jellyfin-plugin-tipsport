@@ -148,6 +148,7 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
             return media.MediaStreams.ToList();
         }, probe.Token).ConfigureAwait(false);
         source.AnalyzeDurationMs = 3000;
+        client.RecordProbe(match.Id, timer.ElapsedMilliseconds);
         logger.LogInformation("Tipsport stream analysis completed in {ElapsedMs} ms", timer.ElapsedMilliseconds);
         StreamBitrates.Apply(source, client.KnownSourceBitrate(match.Id));
         source.SupportsDirectPlay = false;

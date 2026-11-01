@@ -159,6 +159,61 @@ public sealed class RelayTests
         await WaitUntil(() => factory.Starts == 2);
         Assert.True(relay.Status.Active);
     }
+    [Fact]
+    public async Task TimingDistinguishesOpeningFromFirstDataAndIdleInput()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory);
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), default);
+        Assert.NotNull(relay.Status.ResolveMs);
+        Assert.Null(relay.Status.FirstByteMs);
+        Assert.Null(relay.Status.LastDataAgeMs);
+        factory.Last!.Input.Writer.TryWrite([0x47, 1, 2, 3]);
+        await lease.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(relay.Status.FirstByteMs >= 0);
+        Assert.True(relay.Status.LastDataAgeMs >= 0);
+        Assert.Equal(4, relay.Status.ReplayBytes);
+        await Task.Delay(25);
+        Assert.True(relay.Status.LastDataAgeMs >= 15);
+        await relay.StopCurrent();
+        Assert.Null(relay.Status.FirstByteMs);
+        Assert.Null(relay.Status.ResolveMs);
+        Assert.Equal(0, relay.Status.ReplayBytes);
+    }
+    [Fact]
+    public async Task ReplayMetricRemainsBoundedAndSharedJoinsDoNotRestartTiming()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory);
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), default);
+        for (var i = 0; i < 100; i++)
+        {
+            factory.Last!.Input.Writer.TryWrite([0x47, 1, 2, 3]);
+            await lease.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        Assert.Equal(64 * 4, relay.Status.ReplayBytes);
+        var timing = relay.Status.FirstByteMs;
+        using var other = await relay.Subscribe("100", _ => throw new Exception("Must reuse input"), default);
+        Assert.Equal(timing, relay.Status.FirstByteMs);
+        Assert.Equal(1, factory.Starts);
+    }
+    [Fact]
+    public async Task RecoveryResetsFirstDataTimingAndReplayMetric()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory) { ReconnectDelay = TimeSpan.FromMilliseconds(1) };
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), default);
+        factory.Last!.Input.Writer.TryWrite([0x47, 1, 2, 3]);
+        await lease.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+        factory.Last!.Input.Writer.TryComplete();
+        await WaitUntil(() => factory.Starts == 2 && relay.Status.FirstByteMs == null);
+        Assert.Null(relay.Status.LastDataAgeMs);
+        Assert.Equal(0, relay.Status.ReplayBytes);
+        factory.Last!.Input.Writer.TryWrite([0x47, 5]);
+        await lease.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(relay.Status.FirstByteMs >= 0);
+        Assert.Equal(2, relay.Status.ReplayBytes);
+    }
     private static async Task WaitUntil(Func<bool> predicate)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));

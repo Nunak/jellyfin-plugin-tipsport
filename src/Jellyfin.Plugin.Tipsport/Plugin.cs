@@ -27,5 +27,6 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public bool IncludeTennisTest { get; set; }
     public bool IncludeMatchesInPlaylist { get; set; }
     public int MaximumHeight { get; set; }
+    public bool LowLatencyStart { get; set; }
     public string SportIds { get; set; } = "";
 }

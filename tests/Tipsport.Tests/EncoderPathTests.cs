@@ -17,6 +17,13 @@ public class EncoderPathTests
         }
         finally { Directory.Delete(directory, true); }
     }
+    [Theory]
+    [InlineData("https://cdn.example.test/live.M3U8?signature=example", true)]
+    [InlineData("https://cdn.example.test/live.ts?name=playlist.m3u8", false)]
+    [InlineData("https://cdn.example.test/unknown", false)]
+    public void NearLiveHlsOptionCannotBeAppliedToOtherInputFormats(string address, bool expected) =>
+        Assert.Equal(expected, FfmpegSourceFactory.IsHlsPlaylist(new Uri(address)));
+
     [Fact] public void MissingExplicitEncoderDoesNotSilentlySelectAnother()
     {
         Assert.Throws<TipsportException>(() => FfmpegSourceFactory.ResolveExecutable(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString(), "ffmpeg"), AppContext.BaseDirectory, null, false));

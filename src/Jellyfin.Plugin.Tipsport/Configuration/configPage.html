@@ -17,6 +17,8 @@
       <div class="inputContainer"><label class="inputLabel" for="TipsportSports">Filtrovat sporty podle ID (volitelné)</label><input is="emby-input" id="TipsportSports" type="text"><div class="fieldDescription">Prázdné pole zobrazí všechny sporty. Více ID oddělte čárkou.</div></div>
       <div class="inputContainer"><label class="inputLabel" for="TipsportDuration">Orientační délka zápasu v TV programu (minuty)</label><input is="emby-input" id="TipsportDuration" type="number" min="30" max="480" required><div class="fieldDescription">Jellyfin potřebuje čas konce. Tento odhad je v popisu programu označený jako orientační a neomezuje délku samotného přenosu.</div></div>
       <div class="selectContainer"><label class="selectLabel" for="TipsportMaximumHeight">Limit rozlišení společného zdroje (správce)</label><select is="emby-select" id="TipsportMaximumHeight"><option value="0">Automaticky – nejlepší dostupné</option><option value="1080">Nejvýše 1080p</option><option value="720">Nejvýše 720p</option><option value="480">Nejvýše 480p</option><option value="360">Nejvýše 360p</option></select><div class="fieldDescription">Výchozí je nejlepší dostupná kvalita. Každý divák si může snížit kvalitu ve svém přehrávači Jellyfinu. Tento limit je společný pro všechny diváky. Změna platí až při příštím spuštění vstupu. Pokud zdroj v limitu žádnou variantu nenabízí, přenos se nespustí a limit je nutné zvýšit. Rozlišení klienta lze dále snížit v přehrávači Jellyfinu.</div></div>
+    <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportLowLatency" type="checkbox" is="emby-checkbox" /><span>Spouštět HLS blíž živému vysílání (experimentální)</span></label></div>
+    <p>Menší zásoba vstupu může snížit zpoždění, ale hůře snáší krátké výpadky sítě. Výchozí nastavení je vypnuté. Platí až při příštím spuštění společného zdroje; nemění kvalitu obrazu.</p>
       <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložit nastavení</span></button>
     </form>
     <h3>Přihlášená relace</h3>
@@ -31,6 +33,7 @@
     <p id="TipsportWarning" role="alert" style="color:#ffb74d"></p>
     <p id="TipsportCurrent" role="status" aria-live="polite"></p>
     <p id="TipsportQuality" role="status" aria-live="polite"></p>
+    <p id="TipsportTiming" role="status" aria-live="polite"></p>
     <button is="emby-button" type="button" id="TipsportTest" class="raised block"><span>Ověřit přihlášení a načíst nabídku</span></button>
     <div class="inputContainer"><label class="inputLabel" for="TipsportGuide">XMLTV program pro TV vysílání</label><input is="emby-input" id="TipsportGuide" type="text" readonly><div class="fieldDescription">Přidejte jako zdroj XMLTV v TV vysílání. Obsahuje zápasy se známým začátkem. Konec v TV programu je označený jako orientační.</div></div>
     <button is="emby-button" type="button" id="TipsportExport" class="raised block"><span>Stáhnout diagnostiku</span></button>
@@ -74,12 +77,15 @@
       field('Warning').textContent = s.Warning || '';
       field('Current').textContent = s.Relay.Active ? 'Aktuální zápas: ' + (s.CurrentMatchName || currentNames[s.Relay.MatchId] || s.Relay.MatchId) + (s.Relay.Reconnecting ? ' · Obnovuji spojení…' : '') + ' · Obnovení: ' + s.Relay.Reconnects : 'Vstup Tipsportu je volný.';
       field('Quality').textContent = s.Quality || '';
+      function ms(v) { return typeof v === 'number' ? v + ' ms' : 'zatím nezměřeno'; }
+      field('Timing').textContent = s.Relay.Active ? 'Získání zdroje: ' + ms(s.Relay.ResolveMs) + ' · První data po otevření: ' + ms(s.Relay.FirstByteMs) + ' · Analýza: ' + ms(s.ProbeMs) + ' · Stáří posledních dat: ' + ms(s.Relay.LastDataAgeMs) + ' · Vyrovnávací paměť pro připojení: ' + (s.Relay.ReplayBytes || 0) + ' B. Nejde o celkové zpoždění za živým vysíláním.' : '';
+
     }); }
     page.addEventListener('pageshow', function () {
       ApiClient.getPluginConfiguration(id).then(function (c) {
         field('Enabled').checked = c.Enabled; field('Region').value = c.Region;
         field('Team').value = c.FavouriteTeam; field('Teams').value = c.AdditionalFavouriteTeams || ''; field('Upcoming').checked = c.ShowUpcoming;
-        field('MaximumHeight').value = String(c.MaximumHeight || 0);
+        field('MaximumHeight').value = String(c.MaximumHeight || 0); field('LowLatency').checked = !!c.LowLatencyStart;
         field('Tennis').checked = c.IncludeTennisTest; field('Sports').value = c.SportIds;
         field('PlaylistMatches').checked = c.IncludeMatchesInPlaylist; field('Duration').value = c.GuideDurationMinutes || 180;
         return catalogue();
@@ -93,7 +99,7 @@
       ApiClient.getPluginConfiguration(id).then(function (c) {
         c.Enabled = field('Enabled').checked; c.Region = field('Region').value;
         c.FavouriteTeam = field('Team').value.trim(); c.AdditionalFavouriteTeams = field('Teams').value.trim(); c.ShowUpcoming = field('Upcoming').checked;
-        c.MaximumHeight = Number(field('MaximumHeight').value) || 0;
+        c.MaximumHeight = Number(field('MaximumHeight').value) || 0; c.LowLatencyStart = field('LowLatency').checked;
         c.IncludeTennisTest = field('Tennis').checked; c.SportIds = field('Sports').value;
         c.IncludeMatchesInPlaylist = field('PlaylistMatches').checked; c.GuideDurationMinutes = Math.max(30, Math.min(480, Number(field('Duration').value) || 180));
         return ApiClient.updatePluginConfiguration(id, c);

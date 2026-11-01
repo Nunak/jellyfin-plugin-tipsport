@@ -19,15 +19,23 @@ public sealed class FfmpegSourceFactory(IMediaEncoder encoder) : IRelaySourceFac
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
-        foreach (var arg in new[] { "-nostdin", "-hide_banner", "-loglevel", "error", "-rw_timeout", "15000000", "-user_agent", TipsportClient.UserAgent,
+        var nearLive = (Plugin.Instance?.Configuration.LowLatencyStart ?? false) && IsHlsPlaylist(uri);
+        var arguments = new List<string> { "-nostdin", "-hide_banner", "-loglevel", "error", "-rw_timeout", "15000000", "-user_agent", TipsportClient.UserAgent,
             // Automatic selection chooses the highest-resolution video, rather than
             // the first (potentially low-quality) rendition of an HLS master playlist.
-            "-analyzeduration", "1000000", "-i", uri.AbsoluteUri, "-sn", "-dn", "-c", "copy", "-mpegts_flags", "+resend_headers", "-flush_packets", "1", "-f", "mpegts", "pipe:1" }) start.ArgumentList.Add(arg);
+            "-analyzeduration", "1000000" };
+        // Only known HLS playlists accept this demuxer option. Keep two complete
+        // segments available rather than selecting the potentially fragile last one.
+        if (nearLive) arguments.AddRange(["-live_start_index", "-2"]);
+        arguments.AddRange(["-i", uri.AbsoluteUri, "-sn", "-dn", "-c", "copy", "-mpegts_flags", "+resend_headers", "-flush_packets", "1", "-f", "mpegts", "pipe:1"]);
+        foreach (var arg in arguments) start.ArgumentList.Add(arg);
         // No shell, command logging, stderr logging, or downloaded executable.
         var process = Process.Start(start) ?? throw new TipsportException("FFmpeg se nepodařilo spustit.");
         process.StandardInput.Close();
         return Task.FromResult<IRelaySource>(new FfmpegSource(process));
     }
+    internal static bool IsHlsPlaylist(Uri uri) => uri.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase);
+
     internal static string ResolveExecutable(string? configured, string baseDirectory, string? searchPath, bool windows)
     {
         if (!string.IsNullOrWhiteSpace(configured))
@@ -62,7 +70,7 @@ public sealed class FfmpegSourceFactory(IMediaEncoder encoder) : IRelaySourceFac
     }
 }
 
-public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions, bool Reconnecting = false, int Reconnects = 0);
+public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions, bool Reconnecting = false, int Reconnects = 0, long? ResolveMs = null, long? FirstByteMs = null, long? LastDataAgeMs = null, long ReplayBytes = 0);
 
 /// <summary>One provider acquisition; multiple bounded local readers of the same match.</summary>
 public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, IAsyncDisposable
@@ -71,12 +79,20 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
     private readonly CancellationTokenSource _shutdown = new();
     private RelaySession? _current;
     private long _starts;
+    private long _resolveMs;
     private int _disposed;
     internal TimeSpan ReconnectDelay { get; set; } = TimeSpan.FromSeconds(2);
     internal TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(8);
-    public RelayStatus Status => _current is { Ended: false } current
-        ? new(true, current.MatchId, current.Readers, Interlocked.Read(ref _starts), current.Reconnecting, current.Reconnects)
-        : new(false, null, 0, Interlocked.Read(ref _starts));
+    public RelayStatus Status
+    {
+        get
+        {
+            if (_current is not { Ended: false } current) return new(false, null, 0, Interlocked.Read(ref _starts));
+            var timing = current.Timings;
+            return new(true, current.MatchId, current.Readers, Interlocked.Read(ref _starts), current.Reconnecting, current.Reconnects,
+                Interlocked.Read(ref _resolveMs), timing.FirstByteMs, timing.LastDataAgeMs, timing.ReplayBytes);
+        }
+    }
 
     public async Task<RelayLease> Subscribe(string matchId, Func<CancellationToken, Task<Uri>> resolve, CancellationToken token)
     {
@@ -91,11 +107,15 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
             }
             if (_current != null) await _current.DisposeAsync().ConfigureAwait(false);
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
+            var resolveStart = Stopwatch.GetTimestamp();
             var uri = await resolve(operation.Token).ConfigureAwait(false);
+            Interlocked.Exchange(ref _resolveMs, (long)Stopwatch.GetElapsedTime(resolveStart).TotalMilliseconds);
             var source = await factory.Open(uri, operation.Token).ConfigureAwait(false);
             var session = new RelaySession(matchId, source, IdleTimeout, _shutdown.Token, async ct =>
             {
+                var retryStart = Stopwatch.GetTimestamp();
                 var refreshed = await resolve(ct).ConfigureAwait(false);
+                Interlocked.Exchange(ref _resolveMs, (long)Stopwatch.GetElapsedTime(retryStart).TotalMilliseconds);
                 var reopened = await factory.Open(refreshed, ct).ConfigureAwait(false);
                 Interlocked.Increment(ref _starts);
                 return reopened;
@@ -145,6 +165,17 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
     private readonly object _sync = new();
     private readonly Dictionary<Guid, Channel<byte[]>> _readers = [];
     private readonly Queue<byte[]> _ring = new();
+    private long _openedAt = Stopwatch.GetTimestamp();
+    private long? _firstByteMs;
+    private long? _lastDataAt;
+    private long _replayBytes;
+    internal (long? FirstByteMs, long? LastDataAgeMs, long ReplayBytes) Timings
+    {
+        get
+        {
+            lock (_sync) return (_firstByteMs, _lastDataAt is { } last ? (long)Stopwatch.GetElapsedTime(last).TotalMilliseconds : null, _replayBytes);
+        }
+    }
     private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
     private CancellationTokenSource? _idle;
     private Task _pump = Task.CompletedTask;
@@ -227,7 +258,11 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
                         try
                         {
                             _source = await reopen(_lifetime.Token).ConfigureAwait(false);
-                            lock (_sync) _ring.Clear();
+                            lock (_sync)
+                            {
+                                _ring.Clear(); _replayBytes = 0;
+                                _openedAt = Stopwatch.GetTimestamp(); _firstByteMs = null; _lastDataAt = null;
+                            }
                             recovered = true;
                             break;
                         }
@@ -240,8 +275,10 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
                 var packet = buffer.AsSpan(0, read).ToArray();
                 lock (_sync)
                 {
-                    _ring.Enqueue(packet);
-                    while (_ring.Count > 64) _ring.Dequeue();
+                    _lastDataAt = Stopwatch.GetTimestamp();
+                    _firstByteMs ??= (long)Stopwatch.GetElapsedTime(_openedAt).TotalMilliseconds;
+                    _ring.Enqueue(packet); _replayBytes += packet.Length;
+                    while (_ring.Count > 64) _replayBytes -= _ring.Dequeue().Length;
                     foreach (var reader in _readers.ToArray())
                     {
                         if (reader.Value.Writer.TryWrite(packet)) continue;
@@ -261,7 +298,7 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
                 _ended = true;
                 foreach (var reader in _readers.Values) reader.Writer.TryComplete();
                 _readers.Clear();
-                _ring.Clear();
+                _ring.Clear(); _replayBytes = 0;
             }
             await _source.DisposeAsync().ConfigureAwait(false);
         }

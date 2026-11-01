@@ -8,14 +8,6 @@
     "category": "Live TV",
     "versions": [
       {
-        "version": "0.2.1.2",
-        "changelog": "Live-source bitrate metadata, shorter startup analysis with fallback, immediate relay output flushing and safe probe timing.",
-        "targetAbi": "12.4.0.0",
-        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.2.1.2/Tipsport_0.2.1.2.zip",
-        "checksum": "45ab1e1f20ed9849b02c3f817ad9f4aa",
-        "timestamp": "2026-11-01T00:00:00Z"
-      },
-      {
         "version": "0.2.1.0",
         "changelog": "Favourites and Czech-day views, native ordering, availability explanations, optional shared-source resolution limit and privacy-safe diagnostic export.",
         "targetAbi": "12.4.0.0",
