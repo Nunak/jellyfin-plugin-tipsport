@@ -12,16 +12,20 @@ using MediaBrowser.Model.MediaInfo;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder)
+public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay)
     : IChannel, IRequiresMediaInfoCallback, IHasCacheKey
 {
     public string Name => "Tipsport";
     public string Description => "Živé sportovní přenosy z vlastního účtu Tipsport.";
-    public string DataVersion => "2";
+    public string DataVersion => "4";
     public string HomePageUrl => TipsportClient.Origin(Config.Region);
     public ChannelParentalRating ParentalRating => ChannelParentalRating.GeneralAudience;
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
-    public string GetCacheKey(string? userId) => (DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30).ToString(CultureInfo.InvariantCulture);
+    public string GetCacheKey(string? userId)
+    {
+        var status = relay.Status;
+        return (DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30).ToString(CultureInfo.InvariantCulture) + ":" + status.MatchId + ":" + status.Acquisitions + ":" + status.Reconnecting;
+    }
     public bool IsEnabledFor(string userId)
     {
         if (!Config.Enabled) return false;
@@ -42,13 +46,31 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         if (query.UserId != Guid.Empty && !IsEnabledFor(query.UserId.ToString())) throw new UnauthorizedAccessException("Účet nemá povolený přístup k TV.");
         var items = new List<ChannelItemInfo>();
         if (!Config.Enabled || !sessions.HasSession) return new() { Items = items, TotalRecordCount = 0 };
-        var matches = await client.GetMatches(token).ConfigureAwait(false);
+        var status = relay.Status;
+        var activeName = client.KnownMatchName(status.MatchId) ?? status.MatchId;
+        if (query.FolderId != "watching")
+            items.Add(Folder("watching", status.Active ? "00 · PRÁVĚ SE SLEDUJE · " + activeName : "00 · PRÁVĚ SE SLEDUJE · vstup je volný"));
+        if (query.FolderId == "watching")
+        {
+            if (status.Active)
+                items.Add(Media("current-" + status.MatchId + "-" + status.Acquisitions, "PRÁVĚ SE SLEDUJE · " + activeName, ActiveOverview(status.MatchId!), "match/current-" + status.MatchId));
+            return new() { Items = items, TotalRecordCount = items.Count };
+        }
+        IReadOnlyList<SportMatch> matches;
+        try { matches = await client.GetMatches(token).ConfigureAwait(false); }
+        catch (TipsportException)
+        {
+            items.Add(Folder("unavailable", "Tipsport není dostupný – požádejte správce o kontrolu přihlášení"));
+            return new() { Items = items, TotalRecordCount = items.Count };
+        }
         if (string.IsNullOrEmpty(query.FolderId))
         {
-            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam))
+            if (client.LastWarning != null) items.Add(Folder("warning", "Tipsport vyžaduje kontrolu správcem – přihlášení nebo dostupnost"));
+            foreach (var team in Favourites.List(Config.FavouriteTeam, Config.AdditionalFavouriteTeams))
             {
-                var favourite = Media("favourite", Config.FavouriteTeam + " – živý přenos", "Přehraje právě živý zápas vybraného týmu. Mimo zápas se přenos nespustí.");
-                favourite.ImageUrl = TeamArtwork.ForTeam(Config.FavouriteTeam);
+                var favourite = Media(team.Id, team.Name + " – živý přenos",
+                    "Přehraje právě živý zápas týmu " + team.Name + ". Mimo zápas přenos neběží. Aktuálně sledovaný přenos a jeho kvalitu najdete ve složce PRÁVĚ SE SLEDUJE; program ve složkách jednotlivých sportů.");
+                favourite.ImageUrl = TeamArtwork.ForTeam(team.Name) ?? Artwork("sport");
                 items.Add(favourite);
             }
             items.Add(Folder("live", "Právě živě"));
@@ -66,21 +88,37 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
                 _ => []
             };
             foreach (var match in selected)
-                items.Add(Media(match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
-                    match.Sport + " / " + match.Competition + (match.Start.HasValue ? "\nZačátek: " + match.Start.Value.ToLocalTime().ToString("g", CultureInfo.GetCultureInfo("cs-CZ")) : "")));
+                items.Add(Media((match.Live ? "event-live-" : "event-upcoming-") + match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
+                    match.Sport + " / " + match.Competition + StartText(match) + "\nAktuálně obsazený vstup a kvalitu najdete ve složce PRÁVĚ SE SLEDUJE.", "match/" + (match.Live ? "event-live-" : "event-upcoming-") + match.Id));
         }
         var paged = items.Skip(query.StartIndex ?? 0).Take(query.Limit ?? items.Count).ToArray();
         return new() { Items = paged, TotalRecordCount = items.Count };
     }
-    private static ChannelItemInfo Folder(string id, string name) => new() { Id = id, Name = name, Type = ChannelItemType.Folder, FolderType = ChannelFolderType.Container };
-    private static ChannelItemInfo Media(string id, string name, string overview) => new()
+    private string Artwork(string kind) => LocalBase(host) + "/Plugins/Tipsport/artwork/" + kind + ".png";
+    private static string StartText(SportMatch match) => match.Start.HasValue ? "\nZačátek: " + match.Start.Value.ToLocalTime().ToString("g", CultureInfo.GetCultureInfo("cs-CZ")) : "";
+    private string ActiveOverview(string id)
     {
-        Id = id, Name = name, Overview = overview, Type = ChannelItemType.Media,
+        var status = relay.Status;
+        if (!status.Active) return "Momentálně se žádný přenos nesleduje.";
+        if (status.MatchId != id) return "Právě se sleduje: " + (client.KnownMatchName(status.MatchId) ?? "jiný zápas") + ". Běžící přenos najdete v knihovně Tipsport pod PRÁVĚ SE SLEDUJE.";
+        return "Tento zápas se právě sleduje. Připojení Jellyfinu: " + status.Readers + "." +
+            (status.Reconnecting ? " Obnovuji spojení…" : "") + (client.QualityMatchId == id ? "\n" + client.LastQuality : "");
+    }
+    private ChannelItemInfo Folder(string id, string name) => new() { Id = id, Name = name, ImageUrl = Artwork("sport"), Type = ChannelItemType.Folder, FolderType = ChannelFolderType.Container };
+    private ChannelItemInfo Media(string id, string name, string overview, string artwork = "live") => new()
+    {
+        Id = id, Name = name, Overview = overview, ImageUrl = Artwork(artwork), Type = ChannelItemType.Media,
         MediaType = ChannelMediaType.Video, ContentType = ChannelMediaContentType.Clip, IsLiveStream = true
     };
     public async Task<IEnumerable<MediaSourceInfo>> GetChannelItemMediaInfo(string id, CancellationToken token)
     {
-        var match = Catalogue.Select(await client.GetMatches(token).ConfigureAwait(false), id, Config.FavouriteTeam);
+        SportMatch match;
+        var currentId = Favourites.MatchId(id) ?? "";
+        if (Catalogue.IsMatchId(currentId) && relay.Status is { Active: true } playing && playing.MatchId == currentId)
+            match = new(currentId, client.KnownMatchName(currentId) ?? currentId, "", "", "", true, null);
+        else match = Favourites.Select(await client.GetMatches(token).ConfigureAwait(false), id, Config);
+        if (relay.Status is { Active: true } busy && busy.MatchId != match.Id)
+            throw new TipsportException("Právě se sleduje " + (client.KnownMatchName(busy.MatchId) ?? "jiný zápas") + ". Připojte se ke stejnému přenosu v položce PRÁVĚ SE SLEDUJE.");
         var source = new MediaSourceInfo
         {
             Id = match.Id, Name = match.Name, Protocol = MediaProtocol.Http,

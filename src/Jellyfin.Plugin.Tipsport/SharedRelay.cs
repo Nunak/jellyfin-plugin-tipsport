@@ -62,7 +62,7 @@ public sealed class FfmpegSourceFactory(IMediaEncoder encoder) : IRelaySourceFac
     }
 }
 
-public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions);
+public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions, bool Reconnecting = false, int Reconnects = 0);
 
 /// <summary>One provider acquisition; multiple bounded local readers of the same match.</summary>
 public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, IAsyncDisposable
@@ -72,9 +72,10 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
     private RelaySession? _current;
     private long _starts;
     private int _disposed;
+    internal TimeSpan ReconnectDelay { get; set; } = TimeSpan.FromSeconds(2);
     internal TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(8);
     public RelayStatus Status => _current is { Ended: false } current
-        ? new(true, current.MatchId, current.Readers, Interlocked.Read(ref _starts))
+        ? new(true, current.MatchId, current.Readers, Interlocked.Read(ref _starts), current.Reconnecting, current.Reconnects)
         : new(false, null, 0, Interlocked.Read(ref _starts));
 
     public async Task<RelayLease> Subscribe(string matchId, Func<CancellationToken, Task<Uri>> resolve, CancellationToken token)
@@ -92,7 +93,13 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
             using var operation = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
             var uri = await resolve(operation.Token).ConfigureAwait(false);
             var source = await factory.Open(uri, operation.Token).ConfigureAwait(false);
-            var session = new RelaySession(matchId, source, IdleTimeout, _shutdown.Token);
+            var session = new RelaySession(matchId, source, IdleTimeout, _shutdown.Token, async ct =>
+            {
+                var refreshed = await resolve(ct).ConfigureAwait(false);
+                var reopened = await factory.Open(refreshed, ct).ConfigureAwait(false);
+                Interlocked.Increment(ref _starts);
+                return reopened;
+            }, ReconnectDelay);
             _current = session;
             var lease = session.Subscribe();
             Interlocked.Increment(ref _starts);
@@ -128,8 +135,13 @@ public sealed class RelayLease(ChannelReader<byte[]> reader, Action release) : I
     public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) release(); }
 }
 
-internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan idleTimeout, CancellationToken shutdown) : IAsyncDisposable
+internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan idleTimeout, CancellationToken shutdown, Func<CancellationToken, Task<IRelaySource>> reopen, TimeSpan reconnectDelay) : IAsyncDisposable
 {
+    private IRelaySource _source = source;
+    private int _reconnecting;
+    private int _reconnects;
+    public bool Reconnecting => Volatile.Read(ref _reconnecting) != 0;
+    public int Reconnects => Volatile.Read(ref _reconnects);
     private readonly object _sync = new();
     private readonly Dictionary<Guid, Channel<byte[]>> _readers = [];
     private readonly Queue<byte[]> _ring = new();
@@ -191,10 +203,40 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
         try
         {
             var buffer = new byte[188 * 128];
-            while (true)
+            while (!_lifetime.IsCancellationRequested)
             {
-                var read = await source.Output.ReadAsync(buffer, _lifetime.Token).ConfigureAwait(false);
-                if (read == 0) break;
+                int read;
+                try
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                    read = await _source.Output.ReadAsync(buffer, timeout.Token).ConfigureAwait(false);
+                    if (read == 0) throw new IOException("End of input");
+                    Volatile.Write(ref _reconnecting, 0);
+                }
+                catch (Exception) when (!_lifetime.IsCancellationRequested)
+                {
+                    Volatile.Write(ref _reconnecting, 1);
+                    // Always finish the old provider process before acquiring a new one.
+                    await _source.DisposeAsync().ConfigureAwait(false);
+                    var recovered = false;
+                    while (_reconnects < 3 && !_lifetime.IsCancellationRequested)
+                    {
+                        Interlocked.Increment(ref _reconnects);
+                        await Task.Delay(reconnectDelay, _lifetime.Token).ConfigureAwait(false);
+                        try
+                        {
+                            _source = await reopen(_lifetime.Token).ConfigureAwait(false);
+                            lock (_sync) _ring.Clear();
+                            recovered = true;
+                            break;
+                        }
+                        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { throw; }
+                        catch (Exception) { /* Only bounded retries; no provider details in responses. */ }
+                    }
+                    if (!recovered) break;
+                    continue;
+                }
                 var packet = buffer.AsSpan(0, read).ToArray();
                 lock (_sync)
                 {
@@ -221,7 +263,7 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
                 _readers.Clear();
                 _ring.Clear();
             }
-            await source.DisposeAsync().ConfigureAwait(false);
+            await _source.DisposeAsync().ConfigureAwait(false);
         }
     }
     public ValueTask DisposeAsync()
@@ -237,7 +279,7 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
     private async Task DisposeCore()
     {
         await _lifetime.CancelAsync().ConfigureAwait(false);
-        await source.DisposeAsync().ConfigureAwait(false);
+        await _source.DisposeAsync().ConfigureAwait(false);
         await _pump.ConfigureAwait(false);
         lock (_sync) { _idle?.Cancel(); _idle?.Dispose(); _idle = null; }
         _lifetime.Dispose();

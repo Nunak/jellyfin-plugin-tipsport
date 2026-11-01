@@ -103,6 +103,67 @@ public sealed class RelayTests
         using var second = await next.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.Equal(2, factory.Starts);
     }
+    [Fact]
+    public async Task InterruptedSourceReconnectsAndExistingViewersKeepReceiving()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory) { ReconnectDelay = TimeSpan.FromMilliseconds(5) };
+        var resolves = 0;
+        using var first = await relay.Subscribe("100", _ => { resolves++; return Task.FromResult(Media); }, CancellationToken.None);
+        using var second = await relay.Subscribe("100", _ => throw new Exception("Shared subscription must not resolve"), CancellationToken.None);
+        var old = factory.Last!;
+        old.Input.Writer.TryComplete(new IOException("Disconnected"));
+        await WaitUntil(() => factory.Starts == 2);
+        Assert.True(old.Disposed.Task.IsCompleted);
+        Assert.Equal(2, resolves);
+        factory.Last!.Input.Writer.TryWrite([0x47, 9, 8]);
+        Assert.Equal(new byte[] { 0x47, 9, 8 }, await first.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(new byte[] { 0x47, 9, 8 }, await second.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(1, relay.Status.Reconnects);
+        Assert.Equal(2, relay.Status.Readers);
+    }
+    [Fact]
+    public async Task ReconnectionStopsAfterThreeAttempts()
+    {
+        var factory = new FakeFactory(() => { var source = new FakeSource(); source.Input.Writer.TryComplete(); return source; });
+        await using var relay = new SharedRelay(factory) { ReconnectDelay = TimeSpan.FromMilliseconds(1) };
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), CancellationToken.None);
+        Assert.False(await lease.Reader.WaitToReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(4, factory.Starts); // Initial input plus three bounded recoveries.
+        Assert.False(relay.Status.Active);
+    }
+    [Fact]
+    public async Task LastViewerLeavingDuringRecoveryCancelsFurtherAcquisitions()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory) { ReconnectDelay = TimeSpan.FromSeconds(1), IdleTimeout = TimeSpan.FromMilliseconds(10) };
+        var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), CancellationToken.None);
+        factory.Last!.Input.Writer.TryComplete();
+        await WaitUntil(() => relay.Status.Reconnecting);
+        lease.Dispose();
+        await WaitUntil(() => !relay.Status.Active);
+        Assert.Equal(1, factory.Starts);
+    }
+    [Fact]
+    public async Task ReconnectionWaitsUntilPreviousProcessHasCompletelyStopped()
+    {
+        var slow = new SlowClosingSource();
+        var count = 0;
+        var factory = new FakeFactory(() => ++count == 1 ? slow : new FakeSource());
+        await using var relay = new SharedRelay(factory) { ReconnectDelay = TimeSpan.FromMilliseconds(1) };
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), CancellationToken.None);
+        slow.Input.Writer.TryComplete();
+        await slow.Closing.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, factory.Starts);
+        slow.AllowClose.TrySetResult();
+        await WaitUntil(() => factory.Starts == 2);
+        Assert.True(relay.Status.Active);
+    }
+    private static async Task WaitUntil(Func<bool> predicate)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!predicate()) await Task.Delay(5, timeout.Token);
+    }
     private sealed class FakeFactory(Func<FakeSource>? create = null) : IRelaySourceFactory
     {
         public int Starts;

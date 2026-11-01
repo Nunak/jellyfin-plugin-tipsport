@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.2.0.0",
+        "changelog": "Now-watching item and shared-input diagnostics; bounded reconnects; multiple favourite teams; XMLTV from known start times; wide sports artwork.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.2.0.0/Tipsport_0.2.0.0.zip",
+        "checksum": "616522dd6987b88ffadea165f5309104",
+        "timestamp": "2026-11-01T00:00:00Z"
+      },
+      {
         "version": "0.1.1.0",
         "changelog": "Select highest-resolution HLS variant and report offered qualities; official Kometa artwork for favourite item and TV playlist.",
         "targetAbi": "12.4.0.0",

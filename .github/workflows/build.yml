@@ -10,6 +10,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Install rendering prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1 fonts-dejavu-core
       - run: dotnet test tests/Tipsport.Tests/Tipsport.Tests.csproj -c Release
       - run: dotnet build src/Jellyfin.Plugin.Tipsport/Jellyfin.Plugin.Tipsport.csproj -c Release
       - run: python3 tools/package.py

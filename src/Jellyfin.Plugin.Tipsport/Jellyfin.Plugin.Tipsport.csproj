@@ -3,7 +3,8 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Jellyfin.Controller" Version="12.4.0" ExcludeAssets="runtime" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" ExcludeAssets="runtime" />
     <PackageReference Include="Jellyfin.Model" Version="12.4.0" ExcludeAssets="runtime" />
   </ItemGroup>
-  <ItemGroup><EmbeddedResource Include="Configuration/configPage.html" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Configuration/configPage.html" /><EmbeddedResource Include="Artwork/*.png" /></ItemGroup>
 </Project>

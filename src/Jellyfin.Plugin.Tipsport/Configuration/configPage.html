@@ -10,10 +10,12 @@
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportEnabled" is="emby-checkbox" type="checkbox"><span>Zapnout Tipsport</span></label></div>
       <div class="selectContainer"><label class="selectLabel" for="TipsportRegion">Účet Tipsportu</label><select is="emby-select" id="TipsportRegion"><option value="CZ">Tipsport.cz</option><option value="SK">Tipsport.sk</option></select></div>
       <div class="inputContainer"><label class="inputLabel" for="TipsportTeam">Oblíbený tým</label><input is="emby-input" id="TipsportTeam" type="text"><div class="fieldDescription">Například Kometa. Vytvoří stálou položku, která vybere právě živý zápas tohoto týmu.</div></div>
+      <div class="inputContainer"><label class="inputLabel" for="TipsportTeams">Další oblíbené týmy</label><input is="emby-input" id="TipsportTeams" type="text"><div class="fieldDescription">Oddělte středníkem, například Zbrojovka; Bulldogs Brno. Nejvýše 20 týmů celkem. Současně lze sledovat stále jen jeden zápas.</div></div>
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportUpcoming" is="emby-checkbox" type="checkbox"><span>Zobrazovat i připravované zápasy</span></label></div>
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportTennis" is="emby-checkbox" type="checkbox"><span>Přidat testovací TV kanál s živým tenisem</span></label></div>
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportPlaylistMatches" is="emby-checkbox" type="checkbox"><span>Přidat jednotlivé živé zápasy také do TV playlistu</span></label><div class="fieldDescription">Ve výchozím stavu obsahuje TV playlist pouze oblíbený tým a volitelný testovací tenis. Úplná nabídka zůstává v knihovně Tipsport.</div></div>
       <div class="inputContainer"><label class="inputLabel" for="TipsportSports">Filtrovat sporty podle ID (volitelné)</label><input is="emby-input" id="TipsportSports" type="text"><div class="fieldDescription">Prázdné pole zobrazí všechny sporty. Více ID oddělte čárkou.</div></div>
+      <div class="inputContainer"><label class="inputLabel" for="TipsportDuration">Orientační délka zápasu v TV programu (minuty)</label><input is="emby-input" id="TipsportDuration" type="number" min="30" max="480" required><div class="fieldDescription">Jellyfin potřebuje čas konce. Tento odhad je v popisu programu označený jako orientační a neomezuje délku samotného přenosu.</div></div>
       <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložit nastavení</span></button>
     </form>
     <h3>Přihlášená relace</h3>
@@ -25,8 +27,12 @@
     <button is="emby-button" type="button" id="TipsportImport" class="raised block"><span>Převzít existující relaci z Kodi na tomto serveru</span></button>
     <h3>Ověření</h3>
     <p id="TipsportStatus" role="status" aria-live="polite"></p>
+    <p id="TipsportWarning" role="alert" style="color:#ffb74d"></p>
+    <p id="TipsportCurrent" role="status" aria-live="polite"></p>
     <p id="TipsportQuality" role="status" aria-live="polite"></p>
     <button is="emby-button" type="button" id="TipsportTest" class="raised block"><span>Ověřit přihlášení a načíst nabídku</span></button>
+    <div class="inputContainer"><label class="inputLabel" for="TipsportGuide">XMLTV program pro TV vysílání</label><input is="emby-input" id="TipsportGuide" type="text" readonly><div class="fieldDescription">Přidejte jako zdroj XMLTV v TV vysílání. Obsahuje zápasy se známým začátkem. Konec v TV programu je označený jako orientační.</div></div>
+    <h3>Aktuální nabídka</h3><p id="TipsportMatches"></p>
     <div class="inputContainer"><label class="inputLabel" for="TipsportPlaylist">Adresa M3U pro TV tuner na tomto serveru</label><input is="emby-input" id="TipsportPlaylist" type="text" readonly><div class="fieldDescription">V TV nastavení lze přidat M3U tuner s touto adresou. Limit vstupů nastavte na 1 a povolte sdílení. Nabídka sportů funguje i přes knihovnu Tipsport.</div></div>
   </div></div>
   <script>
@@ -50,29 +56,42 @@
         }).catch(function () {});
       }
     }
+    var currentNames = {};
+    function catalogue() { return api('catalogue').then(function(c) {
+      currentNames = {}; (c.Matches || []).forEach(function(m) { currentNames[m.Id] = m.Name; });
+      field('Matches').textContent = (c.Matches || []).filter(function(m) { return m.Live; }).map(function(m) { return m.Name + ' (' + m.Sport + ')'; }).slice(0, 20).join(' · ') + ((c.Live || 0) > 20 ? ' … Celkem živě: ' + c.Live + '. Úplná nabídka je v knihovně Tipsport.' : '') || 'Žádný živý zápas.';
+      return status();
+    }); }
+    var refreshTimer;
     function status() { return api('status').then(function (s) {
       field('Status').textContent = (s.HasSession ? 'Relace je uložená. ' : 'Relace zatím není uložená. ') + (s.Relay.Active ? 'Běží jeden sdílený vstup. Připojení Jellyfinu: ' + s.Relay.Readers + '.' : 'Žádný přenos právě neběží.') + ' Spuštění zdroje od startu serveru: ' + s.Relay.Acquisitions + '.';
       field('Playlist').value = s.PlaylistUrl;
+      field('Guide').value = s.GuideUrl || '';
+      field('Warning').textContent = s.Warning || '';
+      field('Current').textContent = s.Relay.Active ? 'Aktuální zápas: ' + (s.CurrentMatchName || currentNames[s.Relay.MatchId] || s.Relay.MatchId) + (s.Relay.Reconnecting ? ' · Obnovuji spojení…' : '') + ' · Obnovení: ' + s.Relay.Reconnects : 'Vstup Tipsportu je volný.';
       field('Quality').textContent = s.Quality || '';
     }); }
     page.addEventListener('pageshow', function () {
       ApiClient.getPluginConfiguration(id).then(function (c) {
         field('Enabled').checked = c.Enabled; field('Region').value = c.Region;
-        field('Team').value = c.FavouriteTeam; field('Upcoming').checked = c.ShowUpcoming;
+        field('Team').value = c.FavouriteTeam; field('Teams').value = c.AdditionalFavouriteTeams || ''; field('Upcoming').checked = c.ShowUpcoming;
         field('Tennis').checked = c.IncludeTennisTest; field('Sports').value = c.SportIds;
-        field('PlaylistMatches').checked = c.IncludeMatchesInPlaylist;
-        return status();
+        field('PlaylistMatches').checked = c.IncludeMatchesInPlaylist; field('Duration').value = c.GuideDurationMinutes || 180;
+        return catalogue();
       }).catch(failure);
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(function () { catalogue().catch(failure); }, 15000);
     });
+    page.addEventListener('pagehide', function () { clearInterval(refreshTimer); });
     page.querySelector('#TipsportConfigForm').addEventListener('submit', function (e) {
       e.preventDefault(); Dashboard.showLoadingMsg();
       ApiClient.getPluginConfiguration(id).then(function (c) {
         c.Enabled = field('Enabled').checked; c.Region = field('Region').value;
-        c.FavouriteTeam = field('Team').value.trim(); c.ShowUpcoming = field('Upcoming').checked;
+        c.FavouriteTeam = field('Team').value.trim(); c.AdditionalFavouriteTeams = field('Teams').value.trim(); c.ShowUpcoming = field('Upcoming').checked;
         c.IncludeTennisTest = field('Tennis').checked; c.SportIds = field('Sports').value;
-        c.IncludeMatchesInPlaylist = field('PlaylistMatches').checked;
+        c.IncludeMatchesInPlaylist = field('PlaylistMatches').checked; c.GuideDurationMinutes = Math.max(30, Math.min(480, Number(field('Duration').value) || 180));
         return ApiClient.updatePluginConfiguration(id, c);
-      }).then(function (result) { Dashboard.processPluginConfigurationUpdateResult(result); return status(); }).catch(failure);
+      }).then(function (result) { Dashboard.hideLoadingMsg(); field('Status').textContent = 'Nastavení uloženo.'; return status(); }).catch(failure);
     });
     page.querySelector('#TipsportSessionForm').addEventListener('submit', function (e) {
       e.preventDefault(); var session = field('Session').value; field('Session').value = '';
@@ -81,7 +100,7 @@
     field('Import').addEventListener('click', function () { api('session/import-kodi', 'POST').then(status).catch(failure); });
     field('Test').addEventListener('click', function () {
       field('Status').textContent = 'Načítám nabídku…';
-      api('catalogue').then(function (c) { field('Status').textContent = 'Přihlášení funguje. Zápasů: ' + c.Count + ', živě: ' + c.Live + '. Sporty: ' + c.Sports.join(', '); }).catch(failure);
+      catalogue().catch(failure);
     });
   })();
   </script>

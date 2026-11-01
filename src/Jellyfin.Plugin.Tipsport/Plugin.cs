@@ -21,6 +21,8 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public bool Enabled { get; set; }
     public string Region { get; set; } = "CZ";
     public string FavouriteTeam { get; set; } = "";
+    public string AdditionalFavouriteTeams { get; set; } = "";
+    public int GuideDurationMinutes { get; set; } = 180;
     public bool ShowUpcoming { get; set; } = true;
     public bool IncludeTennisTest { get; set; }
     public bool IncludeMatchesInPlaylist { get; set; }

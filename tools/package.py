@@ -15,7 +15,7 @@ out = root / ".artifacts"
 folder = out / name
 folder.mkdir(parents=True, exist_ok=True)
 meta = {
-    "category": "Live TV", "changelog": "Select highest-resolution HLS variant and report offered qualities; official Kometa artwork for favourite item and TV playlist.",
+    "category": "Live TV", "changelog": "Now-watching item and shared-input diagnostics; bounded reconnects; multiple favourite teams; XMLTV from known start times; wide sports artwork.",
     "description": "Unofficial Tipsport catalogue and shared live streaming using your own account.",
     "guid": "7c761c82-7b32-4b82-bb8f-49a6b0f319e7", "name": "Tipsport", "overview": "Native sports catalogue and one shared input",
     "owner": "Nunak", "status": "Active", "targetAbi": "12.4.0.0", "timestamp": "2026-11-01T00:00:00Z", "version": version

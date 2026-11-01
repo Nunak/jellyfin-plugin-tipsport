@@ -5,7 +5,11 @@ Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10*
 ## Co umí
 
 - Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu.
-- Stálá položka pro oblíbený tým, například Kometu.
+- Stálé položky až pro 20 oblíbených týmů, například Kometu. Původní položka i její TV identifikátor zůstávají zachované.
+- V každé složce přehled **00 · PRÁVĚ SE SLEDUJE** s názvem běžícího zápasu; lze se přes ni připojit ke stejnému vstupu. Jeho název ukazuje obsazený zápas nebo volný vstup. Uvnitř lze otevřít přenos a v detailu zjistit poslední naměřenou kvalitu.
+- Vlastní široké náhledy 16:9: jména soupeřů přímo v obrázku, stav ŽIVĚ/PŘIPRAVUJEME, sport a známý čas začátku. Zápasy Komety doplní klubovým logem načteným z webu klubu; při jeho nedostupnosti zůstane čitelný název. Renderování používá SkiaSharp dodávaný Jellyfinem.
+- Při konci vstupu, chybě čtení nebo 20 sekundách bez dat nejprve ukončí starý proces a nejvýše třikrát obnoví stejný zápas s nově získanou adresou. Připojení diváci zůstávají zachovaní; konečné přehrání přechodu závisí na toleranci přehrávače.
+- Administrace obnovuje přehled po 15 sekundách: aktuální zápas, připojení Jellyfinu, obnovování, kvalita a poslední chyba. Odmítnutí požadavku upozorní na nutnou kontrolu relace; plugin nerozlišuje automaticky vypršení cookie od nedostupnosti služby nebo chybějícího oprávnění.
 - Pro oblíbený tým `Kometa` nebo `HC Kometa Brno` načítá oficiální klubové logo (také přes `tvg-logo` v M3U).
 - Volitelný výstup M3U pro standardní TV vysílání Jellyfinu.
 - Jeden vstup od poskytovatele, který může sdílet více místních přehrávačů Jellyfinu.
@@ -34,7 +38,7 @@ Pro ruční testovací instalaci:
 
 Pro použití přes **TV vysílání** přidejte M3U tuner s adresou z nastavení pluginu. Nastavte limit vstupů **1**, povolte **Allow stream sharing** a obnovte program. Adresa funguje jen uvnitř serveru; není určená do externího přehrávače.
 
-Výchozí TV playlist obsahuje pouze oblíbený tým a volitelný testovací tenis. Jednotlivé právě živé zápasy lze přidat přepínačem v nastavení; připravované zápasy zůstávají v knihovně Tipsport, aby nevytvářely stovky neaktivních TV kanálů.
+Výchozí TV playlist obsahuje pouze oblíbené týmy a volitelný testovací tenis. Jednotlivé právě živé zápasy lze přidat přepínačem v nastavení; připravované zápasy zůstávají v knihovně Tipsport, aby nevytvářely stovky neaktivních TV kanálů.
 
 Při migraci nejprve ukončete původní testovací streamy. Tuner původního Kodi adaptéru přepněte na novou adresu, aby vedle sebe nezůstaly dva nezávislé zdroje. Původní instalaci lze ponechat jako vypnutou zálohu.
 
@@ -46,7 +50,7 @@ Při migraci nejprve ukončete původní testovací streamy. Tuner původního K
 - Používejte sdílený přenos podle podmínek služby a vlastních oprávnění. Plugin nepřidává vysílací licenci.
 - Účet, který už sleduje přenos v Jellyfinu, současně nepoužívejte pro nezávislý přenos přes jinou aplikaci.
 - Oblíbený tým funguje, jen pokud právě běží odpovídající zápas. Čas začátku se zobrazuje pouze tehdy, když ho lze z odpovědi poskytovatele skutečně přečíst.
-- Výstup M3U zatím neobsahuje plnohodnotné XMLTV EPG. Nabídka a informace o zápasech jsou dostupné v knihovně Tipsport.
+- XMLTV zdroj je na `/Plugins/Tipsport/guide.xml` (pouze loopback). Adresa je v nastavení pluginu. V **TV vysílání → Zdroje programu** přidejte XMLTV s touto adresou a obnovte program. Kanály mají stejné `tvg-id` jako M3U; oblíbené týmy obsahují odpovídající zápasy, pokud poskytovatel vrátí skutečný čas začátku. Bez známého začátku se pořad nevytváří. Jellyfin zahazuje pořady bez času konce, proto je konec v programu označený jako orientační: ve výchozím nastavení 180 minut od začátku, nastavitelné na 30–480 minut. Tento odhad neomezuje skutečnou délku přehrávání. Dostupnost programu se proto může lišit podle sportu.
 - Rozhraní poskytovatele není veřejně garantované a jeho změny mohou vyžadovat opravu pluginu.
 
 ## Bezpečnost a soukromí
@@ -72,6 +76,10 @@ Výstup vznikne v `.artifacts`. Sestavení je nezávislé na konkrétní instala
 Testy pokrývají parsování programu bez skóre, výběr správného živého zápasu, více současných čtenářů, odmítnutí druhého zápasu, dokončení starého vstupu před spuštěním nového, uvolnění po posledním divákovi, šifrované uložení relace, omezení interních rozhraní a oprávnění správce. Síťové testy s reálným účtem a zařízeními jsou samostatný krok; jednotkové testy je nenahrazují.
 
 ## Stav vydání
+
+Po aktualizaci na 0.2 obnovte nabídku Tipsportu. Jednotlivé zápasy používají nové identifikátory pro stav a náhledy, takže staré přímé odkazy mohou přestat platit. Stálá položka oblíbeného týmu a její TV identifikátor zůstávají zachované.
+
+Verze **0.2.0.0** rozšiřuje přehled běžícího přenosu, více týmů, široké náhledy, XMLTV a omezenou automatickou obnovu přenosu. Automatické testy (74) pokrývají i zachování čtenářů po výpadku, dokončení starého procesu před obnovou, ukončení po odchodu diváků, limit opakování, stabilní identifikátory týmů a XMLTV se známými začátky a výslovně označeným odhadem konce. Na Windows / Jellyfin 12.4 bylo ověřeno načtení, přehrávání tenisu v prohlížeči (zdroj 704×396), viditelný název obsazeného vstupu, dynamické náhledy soupeřů s logem Komety a zachování konfigurace po restartu. Samostatný integrační test ověřuje čtení XMLTV skutečnou knihovnou Jellyfin.XmlTv. Tato sada testů nenahrazuje dlouhodobý test ani test každého modelu TV.
 
 Verze **0.1.1.0** přidává logo Komety a výběr HLS variant. Dne 1. 11. 2026 bylo na stejné Windows instalaci ověřeno přehrávání a diagnostika skutečného master playlistu: pro aktuální testovací tenis nabízel 512×288 a 320×180; zvoleno bylo 512×288 / 856 kbit/s. Jedná se o omezení této konkrétní nabídky, nikoli důkaz maximální kvality jiných zápasů. Automatická sada obsahuje 56 úspěšných testů, včetně pořadí variant, shodného rozlišení, odděleného zvuku a odmítnutí interních či nešifrovaných adres.
 

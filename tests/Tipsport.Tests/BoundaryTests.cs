@@ -15,7 +15,7 @@ public sealed class BoundaryTests
     [InlineData("2001:4860:4860::8888")]
     public async Task RemoteClientsCannotCallInternalPlaylistOrMediaEvenWithSpoofedHeaders(string address)
     {
-        var controller = new TipsportController(null!, null!, null!, null!);
+        var controller = new TipsportController(null!, null!, null!, null!, null!);
         var context = new DefaultHttpContext();
         context.Connection.RemoteIpAddress = IPAddress.Parse(address);
         context.Request.Headers["X-Forwarded-For"] = "127.0.0.1";
@@ -23,6 +23,10 @@ public sealed class BoundaryTests
         controller.ControllerContext = new() { HttpContext = context };
         var response = Assert.IsType<StatusCodeResult>(await controller.Playlist(CancellationToken.None));
         Assert.Equal(403, response.StatusCode);
+        var guide = Assert.IsType<StatusCodeResult>(await controller.Guide(CancellationToken.None));
+        Assert.Equal(403, guide.StatusCode);
+        Assert.Equal(403, Assert.IsType<StatusCodeResult>(controller.Artwork("live")).StatusCode);
+        Assert.Equal(403, Assert.IsType<StatusCodeResult>(await controller.MatchImage("live-1", CancellationToken.None)).StatusCode);
         await controller.Stream("1", CancellationToken.None);
         Assert.Equal(403, context.Response.StatusCode);
     }

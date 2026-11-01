@@ -10,13 +10,13 @@ namespace Jellyfin.Plugin.Tipsport;
 
 [ApiController]
 [Route("Plugins/Tipsport")]
-public sealed class TipsportController(TipsportClient client, SessionStore sessions, SharedRelay relay, IServerApplicationHost host) : ControllerBase
+public sealed class TipsportController(TipsportClient client, SessionStore sessions, SharedRelay relay, IServerApplicationHost host, MatchArtwork artwork) : ControllerBase
 {
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
 
     [HttpGet("status")]
     [Authorize(Policy = Policies.RequiresElevation)]
-    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, Quality = client.LastQuality, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u" };
+    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, CurrentMatchName = client.KnownMatchName(relay.Status.MatchId), Quality = client.LastQuality, Warning = client.LastWarning, client.LastSuccessfulCatalogue, client.LastFailure, QualityMatchId = client.QualityMatchId, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u", GuideUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/guide.xml" };
 
     public sealed record SessionRequest(string Session);
     [HttpPost("session")]
@@ -41,7 +41,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
         try
         {
             var matches = await client.GetMatches(token).ConfigureAwait(false);
-            return Ok(new { Count = matches.Count, Live = matches.Count(m => m.Live), Sports = matches.Select(m => m.Sport).Distinct().Order().ToArray() });
+            return Ok(new { Count = matches.Count, Live = matches.Count(m => m.Live), CurrentMatch = matches.FirstOrDefault(m => m.Id == relay.Status.MatchId), Matches = matches, Sports = matches.Select(m => m.Sport).Distinct().Order().ToArray() });
         }
         catch (TipsportException e) { return BadRequest(new { Message = e.Message }); }
     }
@@ -61,7 +61,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
         try
         {
             var matches = await client.GetMatches(token).ConfigureAwait(false);
-            var rows = new StringBuilder("#EXTM3U\n");
+            var rows = new StringBuilder("#EXTM3U url-tvg=\"").Append(TipsportChannel.LocalBase(host)).Append("/Plugins/Tipsport/guide.xml\"\n");
             var origin = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/stream/";
             void Add(string id, string name, string group, string? logo = null)
             {
@@ -70,7 +70,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
                 rows.Append(" group-title=\"").Append(Clean(group)).Append("\",").Append(Clean(name)).Append('\n');
                 rows.Append(origin).Append(id).Append(".ts\n");
             }
-            if (!string.IsNullOrWhiteSpace(Config.FavouriteTeam)) Add("favourite", "Tipsport – " + Config.FavouriteTeam, "Tipsport", TeamArtwork.ForTeam(Config.FavouriteTeam));
+            foreach (var team in Favourites.List(Config.FavouriteTeam, Config.AdditionalFavouriteTeams)) Add(team.Id, "Tipsport – " + team.Name, "Tipsport", TeamArtwork.ForTeam(team.Name));
             if (Config.IncludeTennisTest) Add("test-tennis", "Tipsport – test tenisu", "Tipsport");
             if (Config.IncludeMatchesInPlaylist)
                 foreach (var match in matches.Where(m => m.Live)) Add(match.Id, "ŽIVĚ · " + match.Name, match.SportGroup);
@@ -79,6 +79,49 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
         }
         catch (TipsportException e) { return StatusCode(503, e.Message); }
     }
+    [HttpGet("guide.xml")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Guide(CancellationToken token)
+    {
+        if (!IsLoopback()) return StatusCode(403);
+        try
+        {
+            Response.Headers.CacheControl = "no-store";
+            return Content(Programme.Xml(await client.GetMatches(token).ConfigureAwait(false), Config), "application/xml; charset=utf-8");
+        }
+        catch (TipsportException e) { return StatusCode(503, e.Message); }
+    }
+
+    [HttpGet("artwork/match/{selector}.png")]
+    [AllowAnonymous]
+    public async Task<IActionResult> MatchImage(string selector, CancellationToken token)
+    {
+        if (!IsLoopback()) return StatusCode(403);
+        var id = Favourites.MatchId(selector);
+        var team = Favourites.List(Config.FavouriteTeam, Config.AdditionalFavouriteTeams).FirstOrDefault(t => t.Id == selector);
+        if (id == null && team == null) return NotFound();
+        try
+        {
+            var matches = await client.GetMatches(token).ConfigureAwait(false);
+            var match = id != null ? matches.FirstOrDefault(m => m.Id == id)
+                : matches.FirstOrDefault(m => m.Name.Contains(team!.Name, StringComparison.OrdinalIgnoreCase));
+            if (match == null) return Artwork("sport");
+            Response.Headers.CacheControl = "public, max-age=300";
+            return File(await artwork.Get(match).ConfigureAwait(false), "image/png");
+        }
+        catch (TipsportException) { return Artwork("sport"); }
+    }
+
+    [HttpGet("artwork/{kind}.png")]
+    [AllowAnonymous]
+    public IActionResult Artwork(string kind)
+    {
+        if (!IsLoopback()) return StatusCode(403);
+        if (kind is not ("sport" or "live" or "upcoming")) return NotFound();
+        var stream = typeof(Plugin).Assembly.GetManifestResourceStream("Jellyfin.Plugin.Tipsport.Artwork." + kind + ".png");
+        return stream == null ? NotFound() : File(stream, "image/png");
+    }
+
     internal static string Clean(string value) => value.Replace('"', '\'').Replace('\r', ' ').Replace('\n', ' ');
 
     [HttpGet("stream/{selector}.ts")]
@@ -88,7 +131,10 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
         if (!IsLoopback()) { Response.StatusCode = 403; return; }
         try
         {
-            var match = Catalogue.Select(await client.GetMatches(token).ConfigureAwait(false), selector, Config.FavouriteTeam);
+            var currentId = Favourites.MatchId(selector) ?? "";
+            var match = Catalogue.IsMatchId(currentId) && relay.Status is { Active: true } playing && playing.MatchId == currentId
+                ? new SportMatch(currentId, client.KnownMatchName(currentId) ?? currentId, "", "", "", true, null)
+                : Favourites.Select(await client.GetMatches(token).ConfigureAwait(false), selector, Config);
             using var lease = await relay.Subscribe(match.Id, ct => client.Resolve(match.Id, ct), token).ConfigureAwait(false);
             var first = await lease.Reader.ReadAsync(token).ConfigureAwait(false);
             Response.ContentType = "video/MP2T";

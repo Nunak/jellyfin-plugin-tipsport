@@ -14,6 +14,12 @@ public sealed class TipsportClient : IDisposable
     private IReadOnlyList<SportMatch>? _cached;
     private DateTimeOffset _cacheUntil;
     private string _cachedRegion = "";
+    private bool _streamWarning;
+    public string? KnownMatchName(string? id) => _cached?.FirstOrDefault(m => m.Id == id)?.Name;
+    public string? QualityMatchId { get; private set; }
+    public string? LastWarning { get; private set; }
+    public DateTimeOffset? LastSuccessfulCatalogue { get; private set; }
+    public DateTimeOffset? LastFailure { get; private set; }
     public string? LastQuality { get; private set; }
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
     public TipsportClient(SessionStore sessions)
@@ -26,7 +32,7 @@ public sealed class TipsportClient : IDisposable
             ConnectCallback = ConnectPublic
         }) { Timeout = TimeSpan.FromSeconds(15) };
     }
-    public void Invalidate() => _cacheUntil = DateTimeOffset.MinValue;
+    public void Invalidate() { _cacheUntil = DateTimeOffset.MinValue; LastWarning = null; _streamWarning = false; }
     public async Task<IReadOnlyList<SportMatch>> GetMatches(CancellationToken token)
     {
         if (!Config.Enabled) throw new TipsportException("Plugin není zapnutý.");
@@ -37,11 +43,19 @@ public sealed class TipsportClient : IDisposable
             var origin = Origin(Config.Region);
             using var result = await Fetch(new(origin + "/rest/articles/v1/tv/program?day=0&articleId="), true, token).ConfigureAwait(false);
             _cached = Catalogue.Parse(result.RootElement);
+            LastSuccessfulCatalogue = DateTimeOffset.UtcNow;
+            if (!_streamWarning) LastWarning = null;
             _cachedRegion = Config.Region;
             _cacheUntil = DateTimeOffset.UtcNow.AddSeconds(15);
             return Filter(_cached);
         }
+        catch (TipsportException) { Warn(); throw; }
         finally { _gate.Release(); }
+    }
+    private void Warn()
+    {
+        LastFailure = DateTimeOffset.UtcNow;
+        LastWarning = "Tipsport odmítl požadavek nebo není dostupný. Ověřte přihlášení, oprávnění ke sledování a dostupnost služby. Po vypršení relace vložte novou cookie.";
     }
     private static IReadOnlyList<SportMatch> Filter(IReadOnlyList<SportMatch> matches)
     {
@@ -49,6 +63,17 @@ public sealed class TipsportClient : IDisposable
         return selected.Count == 0 ? matches : matches.Where(m => selected.Contains(m.SportId)).ToArray();
     }
     public async Task<Uri> Resolve(string matchId, CancellationToken token)
+    {
+        try
+        {
+            var uri = await ResolveCore(matchId, token).ConfigureAwait(false);
+            QualityMatchId = matchId;
+            LastWarning = null; _streamWarning = false;
+            return uri;
+        }
+        catch (TipsportException) { _streamWarning = true; Warn(); throw; }
+    }
+    private async Task<Uri> ResolveCore(string matchId, CancellationToken token)
     {
         if (!Catalogue.IsMatchId(matchId)) throw new TipsportException("Neplatný zápas.");
         using var document = await Fetch(new(Origin(Config.Region) + "/rest/offer/v2/live/matches/" + matchId + "/stream?deviceType=DESKTOP"), true, token).ConfigureAwait(false);
