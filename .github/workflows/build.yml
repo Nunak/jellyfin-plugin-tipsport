@@ -1,0 +1,21 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/Tipsport.Tests/Tipsport.Tests.csproj -c Release
+      - run: dotnet build src/Jellyfin.Plugin.Tipsport/Jellyfin.Plugin.Tipsport.csproj -c Release
+      - run: python3 tools/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tipsport-plugin-candidate
+          path: |
+            .artifacts/*.zip
+            .artifacts/*.sha256
