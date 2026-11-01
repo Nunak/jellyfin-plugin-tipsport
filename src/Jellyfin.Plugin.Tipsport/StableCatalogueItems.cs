@@ -22,7 +22,7 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
 
     public async Task Prepare(IReadOnlyList<ChannelItemInfo> items, IReadOnlyList<SportMatch> matches, CancellationToken token)
     {
-        if (!items.Any(i => i.Type == ChannelItemType.Media && Favourites.MatchId(i.Id) != null)) return;
+        if (!items.Any(i => i.Type == ChannelItemType.Media)) return;
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
@@ -34,12 +34,12 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
                 ? JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(_aliasPath, token).ConfigureAwait(false)) ?? new()
                 : new();
             var changed = false;
-            var planned = new List<(ChannelItemInfo Info, SportMatch Match)>();
+            var planned = new List<(ChannelItemInfo Info, SportMatch? Match)>();
             foreach (var info in items.Where(i => i.Type == ChannelItemType.Media))
             {
                 var matchId = Favourites.MatchId(info.Id);
                 var match = matches.FirstOrDefault(m => m.Id == matchId);
-                if (match == null) continue;
+                if (match == null) { planned.Add((info, null)); continue; }
                 if (!_aliases.TryGetValue(match.Id, out var alias))
                 {
                     // Keep an already published 0.2 link, even when its old name contained the previous state.
@@ -59,21 +59,23 @@ public sealed class StableCatalogueItems(ILibraryManager library, IProviderManag
             }
             foreach (var (info, match) in planned)
             {
-                var revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                var revision = match == null ? null : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
                     JsonSerializer.Serialize(new { match.Id, match.Name, match.Live, match.Start, match.Sport, match.SportGroup, Version = 1 }))));
-                info.ProviderIds[ArtworkKey] = revision;
+                if (revision != null) info.ProviderIds[ArtworkKey] = revision;
                 var item = existing.FirstOrDefault(i => i.ExternalId == info.Id);
                 if (item == null || item.IsLocked) continue;
-                var update = ItemUpdateType.None;
+                var update = CatalogueMetadataProvider.ApplySort(item, info.ProviderIds.GetValueOrDefault("TipsportSortKey"));
+                if (info.ProviderIds.TryGetValue("TipsportSortKey", out var sort) && item.ProviderIds.GetValueOrDefault("TipsportSortKey") != sort)
+                { item.ProviderIds["TipsportSortKey"] = sort; update |= ItemUpdateType.MetadataEdit; }
                 if (!item.LockedFields.Contains(MetadataField.Name) && item.Name != info.Name)
                 { item.Name = info.Name; update |= ItemUpdateType.MetadataEdit; }
                 if (!item.LockedFields.Contains(MetadataField.Overview) && item.Overview != info.Overview)
                 { item.Overview = info.Overview; update |= ItemUpdateType.MetadataEdit; }
-                if (!item.ProviderIds.TryGetValue(ArtworkKey, out var saved) || saved != revision)
+                if (match != null && (!item.ProviderIds.TryGetValue(ArtworkKey, out var saved) || saved != revision))
                 {
                     using var png = new MemoryStream(await artwork.Get(match).ConfigureAwait(false), false);
                     await providers.SaveImage(item, png, "image/png", ImageType.Primary, null, token).ConfigureAwait(false);
-                    item.ProviderIds[ArtworkKey] = revision;
+                    item.ProviderIds[ArtworkKey] = revision!;
                     update |= ItemUpdateType.ImageUpdate;
                 }
                 if (update != ItemUpdateType.None)

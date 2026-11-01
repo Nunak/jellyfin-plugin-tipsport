@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Jellyfin.Plugin.Tipsport;
 
 public sealed class TipsportException(string message) : Exception(message);
-public sealed record SportMatch(string Id, string Name, string SportId, string Sport, string Competition, bool Live, DateTimeOffset? Start, string SportGroup = "");
+public sealed record SportMatch(string Id, string Name, string SportId, string Sport, string Competition, bool Live, DateTimeOffset? Start, string SportGroup = "", bool Ended = false);
 
 public static class Catalogue
 {
@@ -28,7 +28,7 @@ public static class Catalogue
                     if (!IsMatchId(id) || string.IsNullOrWhiteSpace(name)) continue;
                     var live = match.TryGetProperty("live", out var flag) && flag.ValueKind == JsonValueKind.True;
                     result[id] = new(id, name, sportId, Text(match, "sport") is { Length: > 0 } s ? s : title,
-                        Text(match, "competition"), live, ReadStart(match), title);
+                        Text(match, "competition"), live, ReadStart(match), title, IsEnded(match));
                 }
             }
         }
@@ -39,13 +39,23 @@ public static class Catalogue
     {
         SportMatch? match = selector switch
         {
-            "favourite" or "kometa" when !string.IsNullOrWhiteSpace(team) => matches.FirstOrDefault(m => m.Live && m.Name.Contains(team, StringComparison.OrdinalIgnoreCase)),
-            "test-tennis" => matches.Where(m => m.Live && m.SportId == "43").OrderByDescending(m => m.Competition.StartsWith("ATP ", StringComparison.OrdinalIgnoreCase)).FirstOrDefault(),
-            _ when IsMatchId(selector) => matches.FirstOrDefault(m => m.Id == selector && m.Live),
+            "favourite" or "kometa" when !string.IsNullOrWhiteSpace(team) => matches.FirstOrDefault(m => m.Live && !m.Ended && m.Name.Contains(team, StringComparison.OrdinalIgnoreCase)),
+            "test-tennis" => matches.Where(m => m.Live && !m.Ended && m.SportId == "43").OrderByDescending(m => m.Competition.StartsWith("ATP ", StringComparison.OrdinalIgnoreCase)).FirstOrDefault(),
+            _ when IsMatchId(selector) => matches.FirstOrDefault(m => m.Id == selector && m.Live && !m.Ended),
             _ => null
         };
-        return match ?? throw new TipsportException("Vybraný přenos právě neběží. Zvolte živý zápas.");
+        if (match != null) return match;
+        var selected = matches.FirstOrDefault(m => m.Id == selector);
+        if (selected?.Ended == true) throw new TipsportException("Tento přenos už skončil. Vyberte jiný živý zápas.");
+        if (selected?.Start is { } start && start > DateTimeOffset.UtcNow)
+            throw new TipsportException("Přenos ještě nezačal. Plánovaný začátek: " + start.ToLocalTime().ToString("g", CultureInfo.GetCultureInfo("cs-CZ")) + ".");
+        throw new TipsportException(selected != null ? "Přenos nyní není živě dostupný. Zkuste to později." :
+            selector is "favourite" or "kometa" ? "Oblíbený tým právě nemá živý přenos. Program najdete ve složce Oblíbené." :
+            "Přenos už není v aktuální nabídce. Mohl skončit nebo být stažen poskytovatelem. Obnovte nabídku.");
     }
+
+    private static bool IsEnded(JsonElement match) => new[] { "ended", "finished" }.Any(k =>
+        match.TryGetProperty(k, out var value) && value.ValueKind == JsonValueKind.True);
 
     public static bool IsMatchId(string value) => value.Length is > 0 and <= 20 && value.All(c => c is >= '0' and <= '9');
     public static string Text(JsonElement node, string key) => node.ValueKind == JsonValueKind.Object && node.TryGetProperty(key, out var value) && value.ValueKind is JsonValueKind.String or JsonValueKind.Number ? value.ToString() : "";

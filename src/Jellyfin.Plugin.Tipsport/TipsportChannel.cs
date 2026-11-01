@@ -17,7 +17,7 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
 {
     public string Name => "Tipsport";
     public string Description => "Živé sportovní přenosy z vlastního účtu Tipsport.";
-    public string DataVersion => "5";
+    public string DataVersion => "6";
     public string HomePageUrl => TipsportClient.Origin(Config.Region);
     public ChannelParentalRating ParentalRating => ChannelParentalRating.GeneralAudience;
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
@@ -45,7 +45,8 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
     {
         if (query.UserId != Guid.Empty && !IsEnabledFor(query.UserId.ToString())) throw new UnauthorizedAccessException("Účet nemá povolený přístup k TV.");
         var items = new List<ChannelItemInfo>();
-        if (!Config.Enabled || !sessions.HasSession) return new() { Items = items, TotalRecordCount = 0 };
+        if (!Config.Enabled) return new() { Items = items, TotalRecordCount = 0 };
+        if (!sessions.HasSession) return new() { Items = [Folder("login-required", "Přihlášení k Tipsportu chybí – požádejte správce")], TotalRecordCount = 1 };
         var status = relay.Status;
         var activeName = client.KnownMatchName(status.MatchId) ?? status.MatchId;
         if (query.FolderId != "watching")
@@ -71,25 +72,26 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
                 var favourite = Media(team.Id, team.Name + " – živý přenos",
                     "Přehraje právě živý zápas týmu " + team.Name + ". Mimo zápas přenos neběží. Aktuálně sledovaný přenos a jeho kvalitu najdete ve složce PRÁVĚ SE SLEDUJE; program ve složkách jednotlivých sportů.");
                 favourite.ImageUrl = TeamArtwork.ForTeam(team.Name) ?? Artwork("sport");
+                favourite.ProviderIds["TipsportSortKey"] = Favourites.List(Config.FavouriteTeam, Config.AdditionalFavouriteTeams).ToList().FindIndex(t => t.Id == team.Id).ToString("D4", CultureInfo.InvariantCulture);
                 items.Add(favourite);
             }
+            items.Add(Folder("favourites", "01 · Oblíbené"));
+            items.Add(Folder("today", "02 · Dnes"));
             items.Add(Folder("live", "Právě živě"));
             if (Config.ShowUpcoming) items.Add(Folder("upcoming", "Připravované zápasy"));
-            foreach (var sport in matches.GroupBy(m => m.SportId).OrderBy(g => g.First().SportGroup))
-                items.Add(Folder("sport:" + sport.Key, (string.IsNullOrEmpty(sport.First().SportGroup) ? sport.First().Sport : sport.First().SportGroup) + " (" + sport.Count(m => m.Live) + " živě)"));
+            foreach (var sport in matches.Where(m => !m.Ended).GroupBy(m => m.SportId).OrderBy(g => g.First().SportGroup))
+                items.Add(Folder("sport:" + sport.Key, (string.IsNullOrEmpty(sport.First().SportGroup) ? sport.First().Sport : sport.First().SportGroup) + " (" + sport.Count(m => m.Live && !m.Ended) + " živě)"));
         }
         else
         {
-            var selected = query.FolderId switch
-            {
-                "live" => matches.Where(m => m.Live),
-                "upcoming" => matches.Where(m => !m.Live),
-                _ when query.FolderId.StartsWith("sport:", StringComparison.Ordinal) => matches.Where(m => m.SportId == query.FolderId[6..] && (Config.ShowUpcoming || m.Live)),
-                _ => []
-            };
+            var selected = CatalogueView.Select(matches, query.FolderId, Config, DateTimeOffset.UtcNow);
             foreach (var match in selected)
-                items.Add(Media("match-" + match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
-                    match.Sport + " / " + match.Competition + StartText(match) + "\nAktuálně obsazený vstup a kvalitu najdete ve složce PRÁVĚ SE SLEDUJE.", "match/match-" + match.Id));
+            {
+                var info = Media("match-" + match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
+                    match.Sport + " / " + match.Competition + StartText(match) + "\nAktuálně obsazený vstup a kvalitu najdete ve složce PRÁVĚ SE SLEDUJE.", "match/match-" + match.Id);
+                info.ProviderIds["TipsportSortKey"] = CatalogueView.SortKey(match, Config);
+                items.Add(info);
+            }
         }
         var paged = items.Skip(query.StartIndex ?? 0).Take(query.Limit ?? items.Count).ToArray();
         await catalogueItems.Prepare(paged, matches, token).ConfigureAwait(false);

@@ -26,5 +26,6 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public bool ShowUpcoming { get; set; } = true;
     public bool IncludeTennisTest { get; set; }
     public bool IncludeMatchesInPlaylist { get; set; }
+    public int MaximumHeight { get; set; }
     public string SportIds { get; set; } = "";
 }

@@ -93,5 +93,16 @@ public sealed class StableCatalogueTests : IDisposable
         var info = Info(); await Prepare(Create(), info, Match());
         Assert.Equal("match-123", info.Id);
     }
+    [Fact]
+    public async Task ExistingFavouriteShortcutGetsOrderingWithoutReplacingItsArtworkOrId()
+    {
+        var item = new Video { Id = Guid.NewGuid(), ExternalId = "favourite", Name = "Kometa – živý přenos" };
+        _existing.Add(item);
+        var info = new ChannelItemInfo { Id = "favourite", Name = item.Name, Type = ChannelItemType.Media };
+        info.ProviderIds["TipsportSortKey"] = "0000";
+        await Create().Prepare([info], [], CancellationToken.None);
+        Assert.Equal("favourite", info.Id); Assert.Equal("0000", item.ForcedSortName);
+        Assert.Empty(_providers.Invocations);
+    }
     public void Dispose() { _artwork.Dispose(); if (Directory.Exists(_root)) Directory.Delete(_root, true); }
 }

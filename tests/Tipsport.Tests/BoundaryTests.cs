@@ -27,10 +27,12 @@ public sealed class BoundaryTests
         Assert.Equal(403, guide.StatusCode);
         Assert.Equal(403, Assert.IsType<StatusCodeResult>(controller.Artwork("live")).StatusCode);
         Assert.Equal(403, Assert.IsType<StatusCodeResult>(await controller.MatchImage("live-1", CancellationToken.None)).StatusCode);
+        Assert.Equal(403, Assert.IsType<StatusCodeResult>(controller.QualityPlaylist("abc")).StatusCode);
         await controller.Stream("1", CancellationToken.None);
         Assert.Equal(403, context.Response.StatusCode);
     }
     [Theory]
+    [InlineData(nameof(TipsportController.DiagnosticExport))]
     [InlineData(nameof(TipsportController.Status))]
     [InlineData(nameof(TipsportController.SetSession))]
     [InlineData(nameof(TipsportController.ImportKodi))]

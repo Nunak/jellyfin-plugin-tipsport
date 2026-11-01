@@ -16,6 +16,7 @@
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportPlaylistMatches" is="emby-checkbox" type="checkbox"><span>Přidat jednotlivé živé zápasy také do TV playlistu</span></label><div class="fieldDescription">Ve výchozím stavu obsahuje TV playlist pouze oblíbený tým a volitelný testovací tenis. Úplná nabídka zůstává v knihovně Tipsport.</div></div>
       <div class="inputContainer"><label class="inputLabel" for="TipsportSports">Filtrovat sporty podle ID (volitelné)</label><input is="emby-input" id="TipsportSports" type="text"><div class="fieldDescription">Prázdné pole zobrazí všechny sporty. Více ID oddělte čárkou.</div></div>
       <div class="inputContainer"><label class="inputLabel" for="TipsportDuration">Orientační délka zápasu v TV programu (minuty)</label><input is="emby-input" id="TipsportDuration" type="number" min="30" max="480" required><div class="fieldDescription">Jellyfin potřebuje čas konce. Tento odhad je v popisu programu označený jako orientační a neomezuje délku samotného přenosu.</div></div>
+      <div class="selectContainer"><label class="selectLabel" for="TipsportMaximumHeight">Limit rozlišení společného zdroje (správce)</label><select is="emby-select" id="TipsportMaximumHeight"><option value="0">Automaticky – nejlepší dostupné</option><option value="1080">Nejvýše 1080p</option><option value="720">Nejvýše 720p</option><option value="480">Nejvýše 480p</option><option value="360">Nejvýše 360p</option></select><div class="fieldDescription">Výchozí je nejlepší dostupná kvalita. Každý divák si může snížit kvalitu ve svém přehrávači Jellyfinu. Tento limit je společný pro všechny diváky. Změna platí až při příštím spuštění vstupu. Pokud zdroj v limitu žádnou variantu nenabízí, přenos se nespustí a limit je nutné zvýšit. Rozlišení klienta lze dále snížit v přehrávači Jellyfinu.</div></div>
       <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložit nastavení</span></button>
     </form>
     <h3>Přihlášená relace</h3>
@@ -32,6 +33,9 @@
     <p id="TipsportQuality" role="status" aria-live="polite"></p>
     <button is="emby-button" type="button" id="TipsportTest" class="raised block"><span>Ověřit přihlášení a načíst nabídku</span></button>
     <div class="inputContainer"><label class="inputLabel" for="TipsportGuide">XMLTV program pro TV vysílání</label><input is="emby-input" id="TipsportGuide" type="text" readonly><div class="fieldDescription">Přidejte jako zdroj XMLTV v TV vysílání. Obsahuje zápasy se známým začátkem. Konec v TV programu je označený jako orientační.</div></div>
+    <button is="emby-button" type="button" id="TipsportExport" class="raised block"><span>Stáhnout diagnostiku</span></button>
+    <details id="TipsportDiagnosticDetails" hidden><summary>Zobrazit připravenou diagnostiku</summary><pre id="TipsportDiagnosticPreview" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre><a id="TipsportDiagnosticDownload" download="tipsport-diagnostics.json">Stáhnout připravený soubor JSON</a></details>
+    <p>Export obsahuje verzi, počty připojení, rozlišení a časy poslední kontroly. Neobsahuje přihlášení, adresy serveru, názvy týmů, zápasy ani podepsané adresy. Soubor se stáhne k vám; nikam se automaticky neposílá.</p>
     <h3>Aktuální nabídka</h3><p id="TipsportMatches"></p>
     <div class="inputContainer"><label class="inputLabel" for="TipsportPlaylist">Adresa M3U pro TV tuner na tomto serveru</label><input is="emby-input" id="TipsportPlaylist" type="text" readonly><div class="fieldDescription">V TV nastavení lze přidat M3U tuner s touto adresou. Limit vstupů nastavte na 1 a povolte sdílení. Nabídka sportů funguje i přes knihovnu Tipsport.</div></div>
   </div></div>
@@ -75,6 +79,7 @@
       ApiClient.getPluginConfiguration(id).then(function (c) {
         field('Enabled').checked = c.Enabled; field('Region').value = c.Region;
         field('Team').value = c.FavouriteTeam; field('Teams').value = c.AdditionalFavouriteTeams || ''; field('Upcoming').checked = c.ShowUpcoming;
+        field('MaximumHeight').value = String(c.MaximumHeight || 0);
         field('Tennis').checked = c.IncludeTennisTest; field('Sports').value = c.SportIds;
         field('PlaylistMatches').checked = c.IncludeMatchesInPlaylist; field('Duration').value = c.GuideDurationMinutes || 180;
         return catalogue();
@@ -88,6 +93,7 @@
       ApiClient.getPluginConfiguration(id).then(function (c) {
         c.Enabled = field('Enabled').checked; c.Region = field('Region').value;
         c.FavouriteTeam = field('Team').value.trim(); c.AdditionalFavouriteTeams = field('Teams').value.trim(); c.ShowUpcoming = field('Upcoming').checked;
+        c.MaximumHeight = Number(field('MaximumHeight').value) || 0;
         c.IncludeTennisTest = field('Tennis').checked; c.SportIds = field('Sports').value;
         c.IncludeMatchesInPlaylist = field('PlaylistMatches').checked; c.GuideDurationMinutes = Math.max(30, Math.min(480, Number(field('Duration').value) || 180));
         return ApiClient.updatePluginConfiguration(id, c);
@@ -96,6 +102,19 @@
     page.querySelector('#TipsportSessionForm').addEventListener('submit', function (e) {
       e.preventDefault(); var session = field('Session').value; field('Session').value = '';
       api('session', 'POST', {Session: session}).then(status).catch(failure);
+    });
+    var diagnosticUrl;
+    field('Export').addEventListener('click', function () {
+      api('diagnostics').then(function (report) {
+        var blob = new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'});
+        if (diagnosticUrl) URL.revokeObjectURL(diagnosticUrl);
+        diagnosticUrl = URL.createObjectURL(blob);
+        field('DiagnosticPreview').textContent = JSON.stringify(report, null, 2);
+        field('DiagnosticDetails').hidden = false;
+        field('DiagnosticDownload').href = diagnosticUrl;
+        field('DiagnosticDownload').click();
+        field('Status').textContent = 'Diagnostika připravena. Pokud se soubor nestáhl, otevřete náhled níže a použijte odkaz pro stažení.';
+      }).catch(failure);
     });
     field('Import').addEventListener('click', function () { api('session/import-kodi', 'POST').then(status).catch(failure); });
     field('Test').addEventListener('click', function () {

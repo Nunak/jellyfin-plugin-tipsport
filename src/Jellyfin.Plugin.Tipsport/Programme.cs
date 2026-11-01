@@ -12,13 +12,13 @@ public static class Programme
             .ToList();
         if (config.IncludeTennisTest) channels.Add(("test-tennis", "Test tenisu", matches.Where(m => m.SportId == "43")));
         if (config.IncludeMatchesInPlaylist)
-            channels.AddRange(matches.Where(m => m.Live).Select(m => (m.Id, m.Name, Matches: (IEnumerable<SportMatch>)new[] { m })));
+            channels.AddRange(matches.Where(m => m.Live && !m.Ended).Select(m => (m.Id, m.Name, Matches: (IEnumerable<SportMatch>)new[] { m })));
         var tv = new XElement("tv", new XAttribute("generator-info-name", "Jellyfin Tipsport"));
         foreach (var channel in channels)
         {
             var id = "tipsport." + channel.Id;
             tv.Add(new XElement("channel", new XAttribute("id", id), new XElement("display-name", channel.Name)));
-            foreach (var match in channel.Matches.Where(m => m.Start.HasValue).OrderBy(m => m.Start))
+            foreach (var match in channel.Matches.Where(m => m.Start.HasValue && !m.Ended).OrderBy(m => m.Start))
             {
                 // Jellyfin discards XMLTV without stop. Mark the configurable guide window as an estimate.
                 var duration = Math.Clamp(config.GuideDurationMinutes, 30, 480);

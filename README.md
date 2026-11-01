@@ -4,7 +4,10 @@ Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10*
 
 ## Co umí
 
-- Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu.
+- Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu, navíc **01 · Oblíbené** a **02 · Dnes**. Dnešní den se počítá podle Europe/Prague; probíhající přenosy jsou zahrnuté i bez času začátku.
+- V seznamu zápasů řadí oblíbené týmy před ostatní, poté podle známého začátku; neznámé časy jsou poslední. Používá nativní metadata řazení Jellyfinu a při prvním importu je doplní během obnovy metadat. Vlastní řazení vybrané klientem má přednost.
+- Přenosy s výslovným příznakem ukončení od poskytovatele skryje; samotný minulý čas začátku nepovažuje za konec zápasu. Položky stažené z aktuálního programu odstraní Jellyfin při obnovení katalogu.
+- Rozlišuje plánovaný začátek, výslovně ukončený přenos, chybějící relaci a přenos stažený z nabídky. Odmítnutí služby nemusí znamenat vypršení přihlášení. Zobrazení detailu chyby přehrávání závisí na klientovi Jellyfinu.
 - Odkazy na jednotlivé zápasy zůstávají stejné při přechodu do živého vysílání i při aktualizaci náhledu. Existující odkazy z verze 0.2.0 se zachovají; zamčené vlastní názvy a popisy se nepřepisují. Migrační mapa odkazů se ukládá do `Tipsport.private/links.json`.
 - Stálé položky až pro 20 oblíbených týmů, například Kometu. Původní položka i její TV identifikátor zůstávají zachované.
 - V každé složce přehled **00 · PRÁVĚ SE SLEDUJE** s názvem běžícího zápasu; lze se přes ni připojit ke stejnému vstupu. Jeho název ukazuje obsazený zápas nebo volný vstup. Uvnitř lze otevřít přenos a v detailu zjistit poslední naměřenou kvalitu.
@@ -16,7 +19,9 @@ Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10*
 - Jeden vstup od poskytovatele, který může sdílet více místních přehrávačů Jellyfinu.
 - Když už běží jiný zápas, nový nezávislý vstup odmítne. Stejný zápas z položky týmu i ze seznamu používá stejný vstup.
 - Převod HLS do MPEG-TS přes FFmpeg dodaný s Jellyfinem, pomocí `-c copy`. Překódování pro konkrétní zařízení dál zajišťuje Jellyfin.
-- Z HLS master playlistu vybírá nejvyšší dostupné rozlišení a při shodě vyšší datový tok. U odděleného zvuku nebo nepřístupného playlistu ponechá výběr FFmpegu. Diagnostika pluginu ukazuje nabídnuté varianty, bez podepsaných adres. Nízké rozlišení samotného zdroje plugin nenavyšuje.
+- Ve výchozím stavu vybírá nejlepší dostupnou kvalitu; každý divák může snížit výstupní kvalitu ve svém přehrávači Jellyfinu. Volitelný limit rozlišení zdroje v administraci platí společně pro celý sdílený vstup až při jeho příštím otevření. Z nabízených variant vybere nejlepší pod limitem; pokud taková varianta chybí nebo kvalitu nelze ověřit, požádá o zvýšení limitu místo jeho tichého překročení. U odděleného zvuku vytvoří dočasný lokální master playlist se zvoleným videem a zvukovými stopami. Tento playlist je pouze v paměti, dostupný jen přes loopback a není součástí diagnostiky.
+- Tlačítko **Stáhnout diagnostiku** v administraci stáhne JSON s verzí, počty připojení, rozlišeními a časy kontrol. Export používá výslovný seznam údajů: neobsahuje cookies, relaci, názvy týmů, sledované zápasy, adresy serveru, cesty ani podepsané URL. Nic automaticky neodesílá.
+- Z HLS master playlistu vybírá nejvyšší dostupné rozlišení a při shodě vyšší datový tok. Při automatické kvalitě u odděleného zvuku nebo nepřístupného playlistu ponechá výběr FFmpegu. Diagnostika pluginu ukazuje nabídnuté varianty, bez podepsaných adres. Nízké rozlišení samotného zdroje plugin nenavyšuje.
 - Pro požadavky na API používá systémový `curl`, pokud je dostupný (na Windows `%SystemRoot%\System32\curl.exe`, na Linuxu `/usr/bin/curl` nebo `/bin/curl`). Umožňuje požadavky GET bez těla s hlavičkou Content-Type. Bez něj použije klienta .NET; kompatibilitu s webovou ochranou poskytovatele je nutné ověřit. Cookie předává procesu přes standardní vstup, nikdy v argumentech, a zachovává kontrolu HTTPS certifikátů.
 
 ## První nastavení
@@ -77,6 +82,8 @@ Výstup vznikne v `.artifacts`. Sestavení je nezávislé na konkrétní instala
 Testy pokrývají parsování programu bez skóre, výběr správného živého zápasu, více současných čtenářů, odmítnutí druhého zápasu, dokončení starého vstupu před spuštěním nového, uvolnění po posledním divákovi, šifrované uložení relace, omezení interních rozhraní a oprávnění správce. Síťové testy s reálným účtem a zařízeními jsou samostatný krok; jednotkové testy je nenahrazují.
 
 ## Stav vydání
+
+Verze **0.2.1.0** přidává složky Oblíbené a Dnes, řazení zápasů, přesnější dostupnost, volitelný společný limit zdroje při zachování automatické nejlepší kvality a export diagnostiky z povoleného seznamu údajů. Prochází 96 automatických testů. Na Windows / Jellyfin 12.4 byly ověřené nové složky, zachovaný odkaz Komety a skutečné přehrávání hokeje BIK Karlskoga–Östersund s limitem 360p: ze zdrojem nabízených 768×432 a 512×288 vybral 512×288 / 510 kbit/s včetně odděleného zvuku. Výchozí nastavení bylo po testu vráceno na nejlepší automatickou kvalitu; po finálním restartu tentýž přenos skutečně hrál v 768×432. Ověřen byl i náhled skutečného diagnostického JSON bez přihlašovacích údajů a Kometa na prvním místě hokejového seznamu.
 
 Verze **0.2.0.1** opravuje přímé odkazy na zápasy: při přechodu z připravovaného do živého vysílání a změně náhledu zůstává identifikátor stejný. Zachovává existující položky z 0.2.0 a aktualizuje jejich název, popis i obrázek přes rozhraní Jellyfinu; respektuje zamčená metadata. Automatická sada obsahuje 80 úspěšných testů včetně migrace odkazu, restartu a změny stavu. Na Windows / Jellyfin 12.4 bylo ověřeno načtení verze, zachování odkazu na Kometu s novým obrázkem a souběžné přehrávání Pardubice–Mladá Boleslav ve dvou prohlížečích přes jediný vstup (854×480 / 2179 kbit/s), bez nového vstupu po odpojení jednoho diváka. Uživatel potvrdil přehrávání také na Samsung TV. Jde o několikaminutový provozní test, nikoli test celého zápasu. Odkazy odstraněné při přechodu z 0.1 se zpětně neobnovují.
 

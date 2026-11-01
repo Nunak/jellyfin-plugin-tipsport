@@ -1,4 +1,5 @@
 using System.Net;
+using MediaBrowser.Controller;
 using System.Net.Sockets;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -9,6 +10,10 @@ public sealed class TipsportClient : IDisposable
 {
     public const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0";
     private readonly SessionStore _sessions;
+    private readonly IServerApplicationHost _host;
+    private sealed record SelectedMaster(string Key, string Playlist, DateTimeOffset Expires);
+    private SelectedMaster? _selectedMaster;
+    internal string? SelectedPlaylist(string key) => _selectedMaster is { } p && p.Key == key && p.Expires > DateTimeOffset.UtcNow ? p.Playlist : null;
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<SportMatch>? _cached;
@@ -22,9 +27,9 @@ public sealed class TipsportClient : IDisposable
     public DateTimeOffset? LastFailure { get; private set; }
     public string? LastQuality { get; private set; }
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
-    public TipsportClient(SessionStore sessions)
+    public TipsportClient(SessionStore sessions, IServerApplicationHost host)
     {
-        _sessions = sessions;
+        _sessions = sessions; _host = host;
         // Avoid HttpClientFactory URL logging: media URLs can contain signed credentials.
         _http = new(new SocketsHttpHandler
         {
@@ -35,6 +40,7 @@ public sealed class TipsportClient : IDisposable
     public void Invalidate() { _cacheUntil = DateTimeOffset.MinValue; LastWarning = null; _streamWarning = false; }
     public async Task<IReadOnlyList<SportMatch>> GetMatches(CancellationToken token)
     {
+        if (!_sessions.HasSession) throw new TipsportException("Přihlášení k Tipsportu chybí. Požádejte správce o obnovení relace.");
         if (!Config.Enabled) throw new TipsportException("Plugin není zapnutý.");
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
@@ -49,13 +55,13 @@ public sealed class TipsportClient : IDisposable
             _cacheUntil = DateTimeOffset.UtcNow.AddSeconds(15);
             return Filter(_cached);
         }
-        catch (TipsportException) { Warn(); throw; }
+        catch (TipsportException e) { Warn(e.Message); throw; }
         finally { _gate.Release(); }
     }
-    private void Warn()
+    private void Warn(string? message = null)
     {
         LastFailure = DateTimeOffset.UtcNow;
-        LastWarning = "Tipsport odmítl požadavek nebo není dostupný. Ověřte přihlášení, oprávnění ke sledování a dostupnost služby. Po vypršení relace vložte novou cookie.";
+        LastWarning = message ?? "Tipsport odmítl požadavek nebo není dostupný. Ověřte přihlášení, oprávnění ke sledování a dostupnost služby. Po vypršení relace vložte novou cookie.";
     }
     private static IReadOnlyList<SportMatch> Filter(IReadOnlyList<SportMatch> matches)
     {
@@ -71,7 +77,7 @@ public sealed class TipsportClient : IDisposable
             LastWarning = null; _streamWarning = false;
             return uri;
         }
-        catch (TipsportException) { _streamWarning = true; Warn(); throw; }
+        catch (TipsportException e) { _streamWarning = true; Warn(e.Message); throw; }
     }
     private async Task<Uri> ResolveCore(string matchId, CancellationToken token)
     {
@@ -97,16 +103,23 @@ public sealed class TipsportClient : IDisposable
     private async Task<Uri> BestQuality(Uri uri, CancellationToken token)
     {
         LastQuality = null;
-        if (ProviderHttp.CurlPath is not { } curl) { LastQuality = "Systémový curl není dostupný; výběr kvality provádí FFmpeg."; return uri; }
+        if (ProviderHttp.CurlPath is not { } curl) { if (Config.MaximumHeight > 0) throw new TipsportException("Limit kvality vyžaduje dostupný systémový curl. Zvolte automatickou kvalitu."); LastQuality = "Systémový curl není dostupný; výběr kvality provádí FFmpeg."; return uri; }
         try
         {
             var text = await ProviderHttp.FetchText(curl, uri, null, token).ConfigureAwait(false);
-            var choice = HlsQuality.Select(uri, text);
+            var choice = HlsQuality.Select(uri, text, Config.MaximumHeight);
             LastQuality = choice.Description;
+            if (choice.Playlist != null)
+            {
+                var key = Guid.NewGuid().ToString("N");
+                _selectedMaster = new(key, choice.Playlist, DateTimeOffset.UtcNow.AddMinutes(5));
+                return new Uri(TipsportChannel.LocalBase(_host) + "/Plugins/Tipsport/quality/" + key + ".m3u8");
+            }
             return choice.Uri;
         }
         catch (Exception e) when (e is TipsportException or HttpRequestException or SocketException or System.ComponentModel.Win32Exception)
         {
+            if (Config.MaximumHeight > 0) throw new TipsportException("Přenos nelze otevřít v nastaveném limitu kvality. Zvyšte limit nebo zvolte automatickou kvalitu.");
             // FFmpeg also supports redirects and non-HLS sources. Never expose signed URLs.
             LastQuality = "Playlist nelze předem vyhodnotit; výběr kvality provádí FFmpeg.";
             return uri;
