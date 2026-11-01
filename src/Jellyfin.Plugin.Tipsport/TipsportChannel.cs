@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
+using Microsoft.Extensions.Logging;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.Library;
@@ -12,7 +14,7 @@ using MediaBrowser.Model.MediaInfo;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay, StableCatalogueItems catalogueItems)
+public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay, StableCatalogueItems catalogueItems, ILogger<TipsportChannel> logger)
     : IChannel, IRequiresMediaInfoCallback, IHasCacheKey
 {
     public string Name => "Tipsport";
@@ -126,7 +128,7 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         {
             Id = match.Id, Name = match.Name, Protocol = MediaProtocol.Http,
             Path = LocalBase(host) + "/Plugins/Tipsport/stream/" + match.Id + ".ts",
-            Container = "ts", IsInfiniteStream = true, IsRemote = false,
+            Container = "ts", IsInfiniteStream = true, IsRemote = true,
             SupportsDirectPlay = false, SupportsDirectStream = false, SupportsTranscoding = true,
             SupportsProbing = true, IgnoreDts = true, ReadAtNativeFramerate = true,
             AnalyzeDurationMs = 3000, MediaStreams = []
@@ -135,11 +137,19 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         // minutes analyzing a live input and build an unsuitable transcoding command.
         using var probe = CancellationTokenSource.CreateLinkedTokenSource(token);
         probe.CancelAfter(TimeSpan.FromSeconds(30));
-        var media = await encoder.GetMediaInfo(new MediaInfoRequest
+        var timer = Stopwatch.StartNew();
+        source.MediaStreams = await LiveProbe.Read(async (duration, ct) =>
         {
-            MediaSource = source, MediaType = MediaBrowser.Model.Dlna.DlnaProfileType.Video, ExtractChapters = false
+            source.AnalyzeDurationMs = duration;
+            var media = await encoder.GetMediaInfo(new MediaInfoRequest
+            {
+                MediaSource = source, MediaType = MediaBrowser.Model.Dlna.DlnaProfileType.Video, ExtractChapters = false
+            }, ct).ConfigureAwait(false);
+            return media.MediaStreams.ToList();
         }, probe.Token).ConfigureAwait(false);
-        source.MediaStreams = media.MediaStreams;
+        source.AnalyzeDurationMs = 3000;
+        logger.LogInformation("Tipsport stream analysis completed in {ElapsedMs} ms", timer.ElapsedMilliseconds);
+        StreamBitrates.Apply(source, client.KnownSourceBitrate(match.Id));
         source.SupportsDirectPlay = false;
         source.SupportsDirectStream = false;
         return [source];

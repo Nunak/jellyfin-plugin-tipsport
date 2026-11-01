@@ -22,6 +22,8 @@ public sealed class TipsportClient : IDisposable
     private bool _streamWarning;
     public string? KnownMatchName(string? id) => _cached?.FirstOrDefault(m => m.Id == id)?.Name;
     public string? QualityMatchId { get; private set; }
+    private int? _sourceBitrate;
+    internal int? KnownSourceBitrate(string id) => QualityMatchId == id ? _sourceBitrate : null;
     public string? LastWarning { get; private set; }
     public DateTimeOffset? LastSuccessfulCatalogue { get; private set; }
     public DateTimeOffset? LastFailure { get; private set; }
@@ -102,13 +104,13 @@ public sealed class TipsportClient : IDisposable
     }
     private async Task<Uri> BestQuality(Uri uri, CancellationToken token)
     {
-        LastQuality = null;
+        LastQuality = null; _sourceBitrate = null;
         if (ProviderHttp.CurlPath is not { } curl) { if (Config.MaximumHeight > 0) throw new TipsportException("Limit kvality vyžaduje dostupný systémový curl. Zvolte automatickou kvalitu."); LastQuality = "Systémový curl není dostupný; výběr kvality provádí FFmpeg."; return uri; }
         try
         {
             var text = await ProviderHttp.FetchText(curl, uri, null, token).ConfigureAwait(false);
             var choice = HlsQuality.Select(uri, text, Config.MaximumHeight);
-            LastQuality = choice.Description;
+            LastQuality = choice.Description; _sourceBitrate = choice.Bitrate;
             if (choice.Playlist != null)
             {
                 var key = Guid.NewGuid().ToString("N");

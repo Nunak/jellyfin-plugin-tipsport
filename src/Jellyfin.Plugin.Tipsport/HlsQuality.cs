@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-internal sealed record HlsChoice(Uri Uri, string Description, string? Playlist = null);
+internal sealed record HlsChoice(Uri Uri, string Description, string? Playlist = null, int? Bitrate = null);
 
 internal static partial class HlsQuality
 {
@@ -39,19 +39,20 @@ internal static partial class HlsQuality
         var eligible = maximumHeight > 0 ? candidates.Where(v => v.Area > 0 && v.Height > 0 && v.Height <= maximumHeight) : candidates;
         if (!eligible.Any()) throw new TipsportException("Zdroj nenabízí kvalitu v nastaveném limitu. Zvyšte limit nebo zvolte automatickou kvalitu.");
         var best = eligible.OrderByDescending(v => v.Area).ThenByDescending(v => v.Bandwidth).First();
+        var bitrate = best.Bandwidth is >= 64_000 and <= 200_000_000 ? (int?)best.Bandwidth : null;
         var offered = string.Join(", ", candidates.Select(v => v.Resolution).Distinct());
         if (best.Audio != null && externalAudio.Contains(best.Audio))
         {
-            if (maximumHeight == 0) return new(master, "HLS varianty: " + offered + ". Oddělený zvuk; výběr nejlepší stopy provádí FFmpeg.");
+            if (maximumHeight == 0) return new(master, "HLS varianty: " + offered + ". Oddělený zvuk; výběr nejlepší stopy provádí FFmpeg.", Bitrate: bitrate);
             var groups = Read(best.Header).Where(p => p.Key is "AUDIO" or "VIDEO" or "SUBTITLES").Select(p => p.Value).ToHashSet(StringComparer.Ordinal);
             var media = lines.Where(l => l.StartsWith("#EXT-X-MEDIA:", StringComparison.Ordinal) && groups.Contains(Read(l).GetValueOrDefault("GROUP-ID", "")))
                 .Select(l => RewriteUris(master, l));
             var global = lines.Where(l => l.StartsWith("#EXT-X-VERSION:", StringComparison.Ordinal) || l == "#EXT-X-INDEPENDENT-SEGMENTS" ||
                 l.StartsWith("#EXT-X-START:", StringComparison.Ordinal) || l.StartsWith("#EXT-X-SESSION-KEY:", StringComparison.Ordinal)).Select(l => RewriteUris(master, l));
             var playlist = "#EXTM3U\n" + string.Join("\n", global.Concat(media)) + "\n" + best.Header + "\n" + TipsportClient.CheckedUri(best.Uri.AbsoluteUri).AbsoluteUri + "\n";
-            return new(master, "HLS varianty: " + offered + ". Vybráno " + best.Resolution + " / " + best.Bandwidth / 1000 + " kbit/s, včetně odděleného zvuku.", playlist);
+            return new(master, "HLS varianty: " + offered + ". Vybráno " + best.Resolution + " / " + best.Bandwidth / 1000 + " kbit/s, včetně odděleného zvuku.", playlist, bitrate);
         }
-        return new(TipsportClient.CheckedUri(best.Uri.AbsoluteUri), "HLS varianty: " + offered + ". Vybráno " + best.Resolution + " / " + best.Bandwidth / 1000 + " kbit/s.");
+        return new(TipsportClient.CheckedUri(best.Uri.AbsoluteUri), "HLS varianty: " + offered + ". Vybráno " + best.Resolution + " / " + best.Bandwidth / 1000 + " kbit/s.", Bitrate: bitrate);
     }
     private static string RewriteUris(Uri master, string line) => Attributes().Replace(line, m => m.Groups[1].Value == "URI"
         ? "URI=\"" + TipsportClient.CheckedUri(new Uri(master, m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value).AbsoluteUri).AbsoluteUri + "\"" : m.Value);
