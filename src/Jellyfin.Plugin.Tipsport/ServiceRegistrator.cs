@@ -13,6 +13,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<SessionStore>();
         services.AddSingleton<TipsportClient>();
         services.AddSingleton<MatchArtwork>();
+        services.AddSingleton<StableCatalogueItems>();
         services.AddSingleton<IRelaySourceFactory, FfmpegSourceFactory>();
         services.AddSingleton<SharedRelay>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<SharedRelay>());

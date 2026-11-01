@@ -17,6 +17,7 @@ public static class Favourites
     {
         var value = selector.StartsWith("event-live-", StringComparison.Ordinal) ? selector[11..]
             : selector.StartsWith("event-upcoming-", StringComparison.Ordinal) ? selector[15..]
+            : selector.StartsWith("match-", StringComparison.Ordinal) ? selector[6..]
             : selector.StartsWith("current-", StringComparison.Ordinal) ? selector[8..].Split('-')[0]
             : selector.StartsWith("live-", StringComparison.Ordinal) ? selector[5..]
             : selector.StartsWith("upcoming-", StringComparison.Ordinal) ? selector[9..] : selector;

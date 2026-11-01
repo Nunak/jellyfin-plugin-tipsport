@@ -5,6 +5,7 @@ Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10*
 ## Co umí
 
 - Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu.
+- Odkazy na jednotlivé zápasy zůstávají stejné při přechodu do živého vysílání i při aktualizaci náhledu. Existující odkazy z verze 0.2.0 se zachovají; zamčené vlastní názvy a popisy se nepřepisují. Migrační mapa odkazů se ukládá do `Tipsport.private/links.json`.
 - Stálé položky až pro 20 oblíbených týmů, například Kometu. Původní položka i její TV identifikátor zůstávají zachované.
 - V každé složce přehled **00 · PRÁVĚ SE SLEDUJE** s názvem běžícího zápasu; lze se přes ni připojit ke stejnému vstupu. Jeho název ukazuje obsazený zápas nebo volný vstup. Uvnitř lze otevřít přenos a v detailu zjistit poslední naměřenou kvalitu.
 - Vlastní široké náhledy 16:9: jména soupeřů přímo v obrázku, stav ŽIVĚ/PŘIPRAVUJEME, sport a známý čas začátku. Zápasy Komety doplní klubovým logem načteným z webu klubu; při jeho nedostupnosti zůstane čitelný název. Renderování používá SkiaSharp dodávaný Jellyfinem.
@@ -77,7 +78,9 @@ Testy pokrývají parsování programu bez skóre, výběr správného živého 
 
 ## Stav vydání
 
-Po aktualizaci na 0.2 obnovte nabídku Tipsportu. Jednotlivé zápasy používají nové identifikátory pro stav a náhledy, takže staré přímé odkazy mohou přestat platit. Stálá položka oblíbeného týmu a její TV identifikátor zůstávají zachované.
+Verze **0.2.0.1** opravuje přímé odkazy na zápasy: při přechodu z připravovaného do živého vysílání a změně náhledu zůstává identifikátor stejný. Zachovává existující položky z 0.2.0 a aktualizuje jejich název, popis i obrázek přes rozhraní Jellyfinu; respektuje zamčená metadata. Automatická sada obsahuje 80 úspěšných testů včetně migrace odkazu, restartu a změny stavu. Na Windows / Jellyfin 12.4 bylo ověřeno načtení verze, zachování odkazu na Kometu s novým obrázkem a souběžné přehrávání Pardubice–Mladá Boleslav ve dvou prohlížečích přes jediný vstup (854×480 / 2179 kbit/s), bez nového vstupu po odpojení jednoho diváka. Uživatel potvrdil přehrávání také na Samsung TV. Jde o několikaminutový provozní test, nikoli test celého zápasu. Odkazy odstraněné při přechodu z 0.1 se zpětně neobnovují.
+
+Po aktualizaci obnovte nabídku Tipsportu. Stálá položka oblíbeného týmu a její TV identifikátor zůstávají zachované.
 
 Verze **0.2.0.0** rozšiřuje přehled běžícího přenosu, více týmů, široké náhledy, XMLTV a omezenou automatickou obnovu přenosu. Automatické testy (74) pokrývají i zachování čtenářů po výpadku, dokončení starého procesu před obnovou, ukončení po odchodu diváků, limit opakování, stabilní identifikátory týmů a XMLTV se známými začátky a výslovně označeným odhadem konce. Na Windows / Jellyfin 12.4 bylo ověřeno načtení, přehrávání tenisu v prohlížeči (zdroj 704×396), viditelný název obsazeného vstupu, dynamické náhledy soupeřů s logem Komety a zachování konfigurace po restartu. Samostatný integrační test ověřuje čtení XMLTV skutečnou knihovnou Jellyfin.XmlTv. Tato sada testů nenahrazuje dlouhodobý test ani test každého modelu TV.
 

@@ -12,12 +12,12 @@ using MediaBrowser.Model.MediaInfo;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay)
+public sealed class TipsportChannel(TipsportClient client, SessionStore sessions, IServerApplicationHost host, IUserManager users, IMediaEncoder encoder, SharedRelay relay, StableCatalogueItems catalogueItems)
     : IChannel, IRequiresMediaInfoCallback, IHasCacheKey
 {
     public string Name => "Tipsport";
     public string Description => "Živé sportovní přenosy z vlastního účtu Tipsport.";
-    public string DataVersion => "4";
+    public string DataVersion => "5";
     public string HomePageUrl => TipsportClient.Origin(Config.Region);
     public ChannelParentalRating ParentalRating => ChannelParentalRating.GeneralAudience;
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
@@ -88,10 +88,11 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
                 _ => []
             };
             foreach (var match in selected)
-                items.Add(Media((match.Live ? "event-live-" : "event-upcoming-") + match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
-                    match.Sport + " / " + match.Competition + StartText(match) + "\nAktuálně obsazený vstup a kvalitu najdete ve složce PRÁVĚ SE SLEDUJE.", "match/" + (match.Live ? "event-live-" : "event-upcoming-") + match.Id));
+                items.Add(Media("match-" + match.Id, (match.Live ? "ŽIVĚ · " : "ČEKÁME · ") + match.Name,
+                    match.Sport + " / " + match.Competition + StartText(match) + "\nAktuálně obsazený vstup a kvalitu najdete ve složce PRÁVĚ SE SLEDUJE.", "match/match-" + match.Id));
         }
         var paged = items.Skip(query.StartIndex ?? 0).Take(query.Limit ?? items.Count).ToArray();
+        await catalogueItems.Prepare(paged, matches, token).ConfigureAwait(false);
         return new() { Items = paged, TotalRecordCount = items.Count };
     }
     private string Artwork(string kind) => LocalBase(host) + "/Plugins/Tipsport/artwork/" + kind + ".png";
