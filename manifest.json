@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.2.0.1",
+        "changelog": "Stable match links across upcoming/live transitions and artwork changes; preserves published 0.2.0 links and refreshes cached metadata.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.2.0.1/Tipsport_0.2.0.1.zip",
+        "checksum": "475a5b91d1ff6983c1e9c45a2c984d4b",
+        "timestamp": "2026-11-01T00:00:00Z"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "Now-watching item and shared-input diagnostics; bounded reconnects; multiple favourite teams; XMLTV from known start times; wide sports artwork.",
         "targetAbi": "12.4.0.0",
