@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "Login without copying cookies: provider window on the server or an HTTPS administrator form, including mobile devices. Optional encrypted credentials for bounded automatic recovery; failed password attempts pause further automatic submissions. Isolated browser profile and safe session-storage errors.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.3.0.0/Tipsport_0.3.0.0.zip",
+        "checksum": "014d9bee0d3e9ea4a6c3b41708615cf6",
+        "timestamp": "2026-11-02T00:00:00Z"
+      },
+      {
         "version": "0.2.3.1",
         "changelog": "Share stream analysis across aliases of the active input, refresh unavailable match cards, and add optional H.264/AAC MPEG-TS playback compatibility for iOS without changing quality. Shorter HLS segments remain experimental and disabled by default.",
         "targetAbi": "12.4.0.0",
