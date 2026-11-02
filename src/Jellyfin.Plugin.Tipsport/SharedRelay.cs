@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Threading.Channels;
 using MediaBrowser.Controller.MediaEncoding;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Tipsport;
 
@@ -70,10 +71,10 @@ public sealed class FfmpegSourceFactory(IMediaEncoder encoder) : IRelaySourceFac
     }
 }
 
-public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions, bool Reconnecting = false, int Reconnects = 0, long? ResolveMs = null, long? FirstByteMs = null, long? LastDataAgeMs = null, long ReplayBytes = 0);
+public sealed record RelayStatus(bool Active, string? MatchId, int Readers, long Acquisitions, bool Reconnecting = false, int Reconnects = 0, long? ResolveMs = null, long? FirstByteMs = null, long? LastDataAgeMs = null, long ReplayBytes = 0, int ReaderOverruns = 0, long PeakReaderQueueBytes = 0);
 
 /// <summary>One provider acquisition; multiple bounded local readers of the same match.</summary>
-public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, IAsyncDisposable
+public sealed class SharedRelay(IRelaySourceFactory factory, ILogger<SharedRelay>? logger = null) : IHostedService, IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
@@ -87,10 +88,10 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
     {
         get
         {
-            if (_current is not { Ended: false } current) return new(false, null, 0, Interlocked.Read(ref _starts));
+            if (_current is not { Ended: false } current) return new(false, null, 0, Interlocked.Read(ref _starts), ReaderOverruns: _current?.ReaderOverruns ?? 0, PeakReaderQueueBytes: _current?.PeakReaderQueueBytes ?? 0);
             var timing = current.Timings;
             return new(true, current.MatchId, current.Readers, Interlocked.Read(ref _starts), current.Reconnecting, current.Reconnects,
-                Interlocked.Read(ref _resolveMs), timing.FirstByteMs, timing.LastDataAgeMs, timing.ReplayBytes);
+                Interlocked.Read(ref _resolveMs), timing.FirstByteMs, timing.LastDataAgeMs, timing.ReplayBytes, current.ReaderOverruns, current.PeakReaderQueueBytes);
         }
     }
 
@@ -119,7 +120,7 @@ public sealed class SharedRelay(IRelaySourceFactory factory) : IHostedService, I
                 var reopened = await factory.Open(refreshed, ct).ConfigureAwait(false);
                 Interlocked.Increment(ref _starts);
                 return reopened;
-            }, ReconnectDelay);
+            }, ReconnectDelay, bytes => logger?.LogWarning("Tipsport relay disconnected a stalled local reader after its bounded queue filled ({QueuedBytes} bytes). Other readers are preserved.", bytes));
             _current = session;
             var lease = session.Subscribe();
             Interlocked.Increment(ref _starts);
@@ -155,7 +156,7 @@ public sealed class RelayLease(ChannelReader<byte[]> reader, Action release) : I
     public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) release(); }
 }
 
-internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan idleTimeout, CancellationToken shutdown, Func<CancellationToken, Task<IRelaySource>> reopen, TimeSpan reconnectDelay) : IAsyncDisposable
+internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan idleTimeout, CancellationToken shutdown, Func<CancellationToken, Task<IRelaySource>> reopen, TimeSpan reconnectDelay, Action<long>? readerOverrun = null) : IAsyncDisposable
 {
     private IRelaySource _source = source;
     private int _reconnecting;
@@ -163,7 +164,11 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
     public bool Reconnecting => Volatile.Read(ref _reconnecting) != 0;
     public int Reconnects => Volatile.Read(ref _reconnects);
     private readonly object _sync = new();
-    private readonly Dictionary<Guid, Channel<byte[]>> _readers = [];
+    private readonly Dictionary<Guid, RelayReaderBuffer> _readers = [];
+    private int _readerOverruns;
+    private long _peakReaderQueueBytes;
+    public int ReaderOverruns => Volatile.Read(ref _readerOverruns);
+    public long PeakReaderQueueBytes => Interlocked.Read(ref _peakReaderQueueBytes);
     private readonly Queue<byte[]> _ring = new();
     private long _openedAt = Stopwatch.GetTimestamp();
     private long? _firstByteMs;
@@ -194,17 +199,18 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
             if (_ended || _disposed != 0) throw new TipsportException("Přenos právě skončil. Spusťte jej znovu.");
             _idle?.Cancel(); _idle?.Dispose(); _idle = null;
             var id = Guid.NewGuid();
-            var queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(128) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
-            foreach (var packet in _ring) queue.Writer.TryWrite(packet);
+            var queue = new RelayReaderBuffer();
+            foreach (var packet in _ring) queue.TryWrite(packet);
+            Interlocked.Exchange(ref _peakReaderQueueBytes, Math.Max(PeakReaderQueueBytes, queue.QueuedBytes));
             _readers[id] = queue;
-            return new(queue.Reader, () => Release(id));
+            return new(queue, () => Release(id));
         }
     }
     private void Release(Guid id)
     {
         lock (_sync)
         {
-            if (_readers.Remove(id, out var reader)) reader.Writer.TryComplete();
+            if (_readers.Remove(id, out var reader)) reader.Complete();
             ScheduleIdle();
         }
     }
@@ -281,8 +287,14 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
                     while (_ring.Count > 64) _replayBytes -= _ring.Dequeue().Length;
                     foreach (var reader in _readers.ToArray())
                     {
-                        if (reader.Value.Writer.TryWrite(packet)) continue;
-                        reader.Value.Writer.TryComplete(new TipsportException("Přehrávač nestíhá přijímat data. Spusťte přenos znovu."));
+                        if (reader.Value.TryWrite(packet))
+                        {
+                            Interlocked.Exchange(ref _peakReaderQueueBytes, Math.Max(PeakReaderQueueBytes, reader.Value.QueuedBytes));
+                            continue;
+                        }
+                        Interlocked.Increment(ref _readerOverruns);
+                        readerOverrun?.Invoke(reader.Value.QueuedBytes);
+                        reader.Value.Complete(new TipsportException("Přehrávač nestíhá přijímat data. Spusťte přenos znovu."));
                         _readers.Remove(reader.Key);
                     }
                     ScheduleIdle();
@@ -296,7 +308,7 @@ internal sealed class RelaySession(string matchId, IRelaySource source, TimeSpan
             lock (_sync)
             {
                 _ended = true;
-                foreach (var reader in _readers.Values) reader.Writer.TryComplete();
+                foreach (var reader in _readers.Values) reader.Complete();
                 _readers.Clear();
                 _ring.Clear(); _replayBytes = 0;
             }

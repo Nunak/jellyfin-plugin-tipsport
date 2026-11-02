@@ -15,7 +15,7 @@ out = root / ".artifacts"
 folder = out / name
 folder.mkdir(parents=True, exist_ok=True)
 meta = {
-    "category": "Live TV", "changelog": "Login without copying cookies: provider window on the server or an HTTPS administrator form, including mobile devices. Optional encrypted credentials for bounded automatic recovery; failed password attempts pause further automatic submissions. Isolated browser profile and safe session-storage errors.",
+    "category": "Live TV", "changelog": "Absorb high-bitrate HLS bursts in a bounded per-reader buffer instead of disconnecting at 128 pipe reads. Preserve one shared source, source quality and independent healthy viewers. Add numeric queue-overrun diagnostics and safe server warnings.",
     "description": "Unofficial Tipsport catalogue and shared live streaming using your own account.",
     "guid": "7c761c82-7b32-4b82-bb8f-49a6b0f319e7", "name": "Tipsport", "overview": "Native sports catalogue and one shared input",
     "owner": "Nunak", "status": "Active", "targetAbi": "12.4.0.0", "timestamp": "2026-11-02T00:00:00Z", "version": version

@@ -8,6 +8,84 @@ public sealed class RelayTests
 {
     private static readonly Uri Media = new("https://media.example.test/live.m3u8");
     [Fact]
+    public async Task HighBitrateSegmentBurstSurvivesUntilThePacedReaderCatchesUp()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory);
+        using var lease = await relay.Subscribe("100", _ => Task.FromResult(Media), default);
+        // HLS segments arrive in bursts while Jellyfin's -re input consumes at media speed.
+        // Include small pipe reads: packet count is not a reliable memory/bitrate budget.
+        const int packets = 700;
+        for (var i = 0; i < packets; i++)
+        {
+            var packet = new byte[8192];
+            BitConverter.GetBytes(i).CopyTo(packet, 0);
+            factory.Last!.Input.Writer.TryWrite(packet);
+        }
+        await WaitUntil(() => factory.Last!.Input.Reader.Count == 0);
+        for (var i = 0; i < packets; i++)
+        {
+            var packet = await lease.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(i, BitConverter.ToInt32(packet));
+        }
+        Assert.Equal(1, relay.Status.Readers);
+        Assert.Equal(1, factory.Starts);
+        Assert.Equal(0, relay.Status.ReaderOverruns);
+        Assert.True(relay.Status.PeakReaderQueueBytes > 128 * 8192);
+    }
+    [Fact]
+    public async Task StalledReaderIsBoundedWithoutDisconnectingHealthyViewerOrRestartingInput()
+    {
+        var factory = new FakeFactory();
+        await using var relay = new SharedRelay(factory);
+        using var stalled = await relay.Subscribe("100", _ => Task.FromResult(Media), default);
+        using var healthy = await relay.Subscribe("100", _ => throw new Exception("Must share input"), default);
+        for (var i = 0; i < 900; i++)
+        {
+            var packet = new byte[188 * 128];
+            BitConverter.GetBytes(i).CopyTo(packet, 0);
+            factory.Last!.Input.Writer.TryWrite(packet);
+            var received = await healthy.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(i, BitConverter.ToInt32(received));
+        }
+        Assert.Equal(1, relay.Status.Readers);
+        Assert.Equal(1, relay.Status.ReaderOverruns);
+        Assert.InRange(relay.Status.PeakReaderQueueBytes, 1, RelayReaderBuffer.MaximumBytes);
+        Assert.Equal(1, factory.Starts);
+        Assert.True(relay.Status.Active);
+    }
+
+    [Fact]
+    public async Task ReaderByteBudgetIsReleasedByAsyncAndTryReadAndNeverExceeded()
+    {
+        var queue = new RelayReaderBuffer();
+        var full = new byte[RelayReaderBuffer.MaximumBytes];
+        Assert.True(queue.TryWrite(full));
+        Assert.False(queue.TryWrite([1]));
+        Assert.Equal(RelayReaderBuffer.MaximumBytes, queue.QueuedBytes);
+        Assert.Same(full, await queue.ReadAsync());
+        Assert.Equal(0, queue.QueuedBytes);
+        Assert.True(queue.TryWrite([2, 3]));
+        Assert.True(queue.TryRead(out var bytes));
+        Assert.Equal(new byte[] { 2, 3 }, bytes);
+        Assert.Equal(0, queue.QueuedBytes);
+    }
+
+    [Fact]
+    public async Task ReaderEnumerationAndCancellationPreserveByteAccounting()
+    {
+        var queue = new RelayReaderBuffer();
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await queue.ReadAsync(cancelled.Token));
+        Assert.Equal(0, queue.QueuedBytes);
+        Assert.True(queue.TryWrite([1, 2, 3]));
+        queue.Complete();
+        await foreach (var bytes in queue.ReadAllAsync()) Assert.Equal(new byte[] { 1, 2, 3 }, bytes);
+        Assert.Equal(0, queue.QueuedBytes);
+        Assert.True(queue.Completion.IsCompletedSuccessfully);
+    }
+    [Fact]
     public async Task ConcurrentViewersShareExactlyOneAcquisitionAndReceiveSameBytes()
     {
         var factory = new FakeFactory();

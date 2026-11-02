@@ -125,7 +125,7 @@
       });
     }
     function status() { return api('status').then(function (s) {
-      field('Status').textContent = (s.HasSession ? 'Relace je uložená. ' : 'Relace zatím není uložená. ') + (s.Relay.Active ? 'Běží jeden sdílený vstup. Připojení Jellyfinu: ' + s.Relay.Readers + '.' : 'Žádný přenos právě neběží.') + ' Spuštění zdroje od startu serveru: ' + s.Relay.Acquisitions + '.';
+      field('Status').textContent = (s.HasSession ? 'Relace je uložená. ' : 'Relace zatím není uložená. ') + (s.Relay.Active ? 'Běží jeden sdílený vstup. Připojení Jellyfinu: ' + s.Relay.Readers + '.' : 'Žádný přenos právě neběží.') + ' Spuštění zdroje od startu serveru: ' + s.Relay.Acquisitions + '. Odpojení kvůli zaplnění fronty: ' + (s.Relay.ReaderOverruns || 0) + '. Nejvyšší zaplnění: ' + ((s.Relay.PeakReaderQueueBytes || 0) / 1048576).toFixed(1) + ' MiB.';
       field('Playlist').value = s.PlaylistUrl;
       field('Guide').value = s.GuideUrl || '';
       field('Warning').textContent = s.Warning || '';

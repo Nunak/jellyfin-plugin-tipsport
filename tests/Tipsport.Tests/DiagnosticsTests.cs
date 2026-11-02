@@ -17,12 +17,14 @@ public sealed class DiagnosticsTests
     [Fact] public void TimingExportContainsOnlyNumericMeasurements()
     {
         var json = JsonSerializer.Serialize(Diagnostics.Create(new(), true,
-            new(true, "private-match", 2, 1, false, 0, 123, 456, 7, 1024), null, false, null, null, 800));
+            new(true, "private-match", 2, 1, false, 0, 123, 456, 7, 1024, 2, 4096), null, false, null, null, 800));
         using var parsed = JsonDocument.Parse(json);
         var root = parsed.RootElement;
         Assert.Equal(123, root.GetProperty("Relay").GetProperty("ResolveMs").GetInt64());
         Assert.Equal(456, root.GetProperty("Relay").GetProperty("FirstByteMs").GetInt64());
         Assert.Equal(800, root.GetProperty("ProbeMs").GetInt64());
+        Assert.Equal(2, root.GetProperty("Relay").GetProperty("ReaderOverruns").GetInt32());
+        Assert.Equal(4096, root.GetProperty("Relay").GetProperty("PeakReaderQueueBytes").GetInt64());
         Assert.DoesNotContain("private-match", json);
     }
     [Fact] public void DefaultQualityRemainsAutomaticBestAvailable()

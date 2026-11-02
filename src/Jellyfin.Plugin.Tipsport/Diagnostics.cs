@@ -26,7 +26,7 @@ internal static partial class Diagnostics
         MetadataCache = new { Hits = cacheHits, Misses = cacheMisses },
         FavouriteTeamCount = Favourites.List(config.FavouriteTeam, config.AdditionalFavouriteTeams).Count,
         SportFilterCount = config.SportIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length,
-        Relay = new { relay.Active, relay.Readers, relay.Acquisitions, relay.Reconnecting, relay.Reconnects, relay.ResolveMs, relay.FirstByteMs, relay.LastDataAgeMs, relay.ReplayBytes },
+        Relay = new { relay.Active, relay.Readers, relay.Acquisitions, relay.Reconnecting, relay.Reconnects, relay.ResolveMs, relay.FirstByteMs, relay.LastDataAgeMs, relay.ReplayBytes, relay.ReaderOverruns, relay.PeakReaderQueueBytes },
         ProbeMs = probeMs,
         Resolutions = Resolutions().Matches(quality ?? "").Select(m => m.Value).Distinct().ToArray(),
         HasWarning = warning,
