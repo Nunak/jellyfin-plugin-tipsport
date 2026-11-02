@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.3.0.1",
+        "changelog": "Absorb high-bitrate HLS bursts in a bounded per-reader buffer instead of disconnecting at 128 pipe reads. Preserve one shared source, source quality and independent healthy viewers. Add numeric queue-overrun diagnostics and safe server warnings.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.3.0.1/Tipsport_0.3.0.1.zip",
+        "checksum": "9b78d41a21d1cbf1e29c07e199cd7e0f",
+        "timestamp": "2026-11-02T00:00:00Z"
+      },
+      {
         "version": "0.3.0.0",
         "changelog": "Login without copying cookies: provider window on the server or an HTTPS administrator form, including mobile devices. Optional encrypted credentials for bounded automatic recovery; failed password attempts pause further automatic submissions. Isolated browser profile and safe session-storage errors.",
         "targetAbi": "12.4.0.0",
