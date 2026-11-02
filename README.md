@@ -2,6 +2,8 @@
 
 Experimentální, neoficiální serverový plugin pro **Jellyfin 12.4 / .NET 10**. Nabízí sportovní přenosy z vlastního přihlášeného účtu Tipsportu. Kodi, Python ani Selenium nejsou potřeba.
 
+Verze **0.3.0.0** přidává přihlášení bez ručního hledání cookie: v samostatném okně na ploše serveru nebo zadáním údajů v HTTPS administraci i ze vzdáleného mobilu. Heslo lze volitelně šifrovaně uložit pro automatickou obnovu. Na Windows / Jellyfin 12.4 bylo ověřeno skutečné přihlášení z mobilního formuláře, obnova uložených údajů po restartu a živé přehrávání. Pokud si Tipsport vyžádá CAPTCHA nebo další ověření, vzdálený formulář je zatím neumí dokončit.
+
 ## Co umí
 
 - Knihovna Tipsport: živé zápasy, připravované zápasy a složky podle sportu, navíc **01 · Oblíbené** a **02 · Dnes**. Dnešní den se počítá podle Europe/Prague; probíhající přenosy jsou zahrnuté i bez času začátku.
@@ -38,9 +40,10 @@ Pro ruční testovací instalaci:
 
 1. Zastavte Jellyfin, vytvořte v jeho adresáři pluginů složku odpovídající verzi ZIPu, rozbalte do ní jeho obsah a server znovu spusťte. Před nasazením zálohujte konfiguraci. Na Windows s tray instalací jde obvykle o `%ProgramData%\Jellyfin\Server\plugins`. Při ruční aktualizaci odstraňte starou složku pluginu, aby nezůstaly dvě kopie DLL.
 2. V administraci otevřete **Pluginy → Tipsport** a zapněte plugin. Vyberte český nebo slovenský účet.
-3. V běžném prohlížeči se přihlaste k Tipsportu. Do nastavení pluginu vložte **hodnotu cookie JSESSIONID**, nikoli heslo k účtu. Uložte relaci a ověřte načtení nabídky.
-4. Při přechodu z původního Kodi doplňku lze jednorázově převzít jeho soubor relace tlačítkem v nastavení. Hledá se výhradně standardní profil Kodi stejného uživatele Windows, pod kterým běží Jellyfin. Kodi při tom nemusí běžet.
-5. Po aktualizaci internetových kanálů se zobrazí knihovna Tipsport. Uživatel musí mít povolený přístup k TV i k této knihovně.
+3. Bez předání hesla pluginu použijte **Přihlásit k Tipsportu**. Na ploše serveru se otevře samostatné okno Chrome nebo Edge. Přihlaste se v něm přímo k Tipsportu; plugin platnou relaci ověří, zašifrovaně uloží a okno zavře. Okno se otevírá na serveru, ne na vzdáleném telefonu správce; na Windows proto Jellyfin musí běžet v přihlášené uživatelské relaci.
+4. Pro správu z mobilu otevřete nastavení pluginu přes **HTTPS**, vyplňte údaje Tipsportu a použijte **Přihlásit z tohoto zařízení**. Přihlášení provede server ve vlastním prohlížeči; na Windows používá běžné okno na přihlášené ploše serveru i při automatickém přihlášení. V mobilu se žádné vyskakovací okno neotevírá. **Šifrovaně uložit pro automatické přihlášení** je výslovná, ve výchozím stavu vypnutá volba. Údaje se uloží až po ověřeném úspěchu. Pokud je neuložíte, pro další přihlášení je budete muset zadat znovu. CAPTCHA, další ověření nebo změna webu mohou vyžadovat ruční dokončení na serveru; neobcházejí se.
+5. Převzetí staré relace z Kodi a ruční import zůstávají pod **Pokročilá správa relace** pro migraci. Přihlášení vyžaduje nainstalovaný Chrome/Edge a systémový curl; plugin další software nestahuje ani neinstaluje. Desktopový přihlašovací postup zatím kontejner bez plochy nepodporuje.
+6. Po aktualizaci internetových kanálů se zobrazí knihovna Tipsport. Uživatel musí mít povolený přístup k TV i k této knihovně.
 
 Pro použití přes **TV vysílání** přidejte M3U tuner s adresou z nastavení pluginu. Nastavte limit vstupů **1**, povolte **Allow stream sharing** a obnovte program. Adresa funguje jen uvnitř serveru; není určená do externího přehrávače.
 
@@ -51,7 +54,9 @@ Při migraci nejprve ukončete původní testovací streamy. Tuner původního K
 ## Přihlášení a omezení
 
 - Každý provozovatel používá vlastní účet a oprávnění ke sledování. Plugin nevykonává sázky ani jiné finanční operace.
-- Plugin neprovádí automatické přihlášení heslem. Po vypršení relace je nutné ručně předat novou cookie.
+- Po HTTP 401 plugin zkusí obnovu přes vlastní profil prohlížeče, případně s výslovně uloženými údaji. Obnovování sdílí mezi souběžnými požadavky a po neúspěchu má pětiminutovou prodlevu. Bez hesla trvá nejvýše 35 sekund, s heslem 75 sekund plus ukončení prohlížeče. Původní požadavek opakuje nejvýše jednou. Heslo odešle ve formuláři nejvýše jednou; po neúspěšném automatickém pokusu jeho další použití pozastaví i přes restart serveru. Správce zkontroluje údaje a přihlásí se znovu. CAPTCHA, další ověření a souhlasy musí dokončit člověk přímo u Tipsportu. Obnova není slib neomezené platnosti přihlášení.
+- Tlačítko **Obnovit uložené přihlášení** spouští stejnou omezenou obnovu ručně, také ze vzdáleného mobilu. Nepotřebuje nové zadání hesla; používá pouze dříve ověřený profil nebo údaje spojené s aktuální relací. Respektuje probíhající přihlášení i prodlevu mezi pokusy. Je-li uložené heslo pozastavené, výslovné stisknutí dovolí jeden nový pokus; úspěch znovu aktivuje automatickou obnovu. Na pozadí se pozastavené heslo neopakuje.
+- Volitelně zapamatované heslo je odděleně šifrované v `credentials.protected`, svázané s ověřenou relací a zemí účtu. Změna účtu ručním importem jej neaktivuje pro jinou relaci. Stavové API heslo ani jméno nevrací; nepoužívají se v argumentech procesu, diagnostice ani běžné XML konfiguraci. Tlačítko **Odebrat uložené heslo** zachová aktuálně funkční relaci. Správce serveru a proces běžící pod účtem Jellyfinu mohou chráněné údaje používat; šifrování není ochrana před kompromitovaným serverem.
 - Neobchází způsobilost účtu, regionální omezení, ochranu DRM ani bezpečnostní výzvy poskytovatele.
 - Používejte sdílený přenos podle podmínek služby a vlastních oprávnění. Plugin nepřidává vysílací licenci.
 - Účet, který už sleduje přenos v Jellyfinu, současně nepoužívejte pro nezávislý přenos přes jinou aplikaci.
@@ -61,6 +66,12 @@ Při migraci nejprve ukončete původní testovací streamy. Tuner původního K
 
 ## Bezpečnost a soukromí
 
+Přihlašovací okno používá pouze vlastní profil `Tipsport.private/browser-profile`, nikdy běžný profil prohlížeče správce. Na Windows je nový profil přístupný pouze účtu serveru, SYSTEM a místním správcům; na Unixu má režim 0700. Komunikace s tímto oknem používá náhodný port na loopbacku; endpoint nelze zadat zvenku a jeho adresa, cookies ani obsah profilu se nevracejí přes API nebo diagnostiku. Postup vychází z [doporučené izolace profilů Chrome](https://developer.chrome.com/blog/remote-debugging-port). Přihlášení lze spustit pouze s administrátorským oprávněním Jellyfinu. Žádná oprávnění existujících souborů relace se automaticky nerozšiřují.
+
+Převzetí relace vyžaduje současně viditelné přihlášené ovládání účtu na webu Tipsportu a úspěšné načtení programu. Samotná funkční nabídka nestačí: program může být dostupný i s anonymní cookie. Chybová stránka poskytovatele přihlášení zastaví; heslo se na ní neodesílá. Průběh a chyba se zobrazují přímo pod mobilním přihlašovacím tlačítkem.
+
+Při neúspěšném uložení zůstává předchozí relace zachovaná a administrace zobrazí konkrétní zprávu o oprávnění úložiště. Účet Jellyfinu musí mít možnost měnit vlastní soubor relace. Soubory předané z instalace spuštěné jako správce mohou vyžadovat jednorázovou opravu vlastnictví; plugin tuto ochranu neobchází.
+
 Relace není součástí běžné konfigurace pluginu ani instalačního ZIPu. Ukládá se přes ASP.NET Data Protection do `Tipsport.private` vedle konfigurací pluginů. Na Windows jsou klíče navíc chráněné DPAPI uživatele serveru; na ostatních systémech musí zůstat soukromý adresář a jeho klíče dostupné jen účtu Jellyfinu. Přenos zálohy na jiný účet nebo počítač může vyžadovat nové přihlášení.
 
 Správa relace a diagnostika vyžadují administrátora Jellyfinu. Interní playlist a datový stream odmítají síťová připojení mimo loopback. Běžný divák používá standardní ověřené přehrávání Jellyfinu. Cookie se posílá jen na `www.tipsport.cz` nebo `www.tipsport.sk`; sekundární poskytovatel ji nedostane. Plugin nezapisuje cookie, podepsané URL ani FFmpeg argumenty do logu.
@@ -69,11 +80,12 @@ Samotný Jellyfin může v diagnostice zapisovat přehrávací URL. Chraňte pro
 
 ## Sestavení a testy
 
-Potřebujete .NET SDK 10.
+Potřebujete .NET SDK 10; pro kontrolu přihlašovacích skriptů také Node.js 22 nebo novější.
 
 ```sh
 dotnet test tests/Tipsport.Tests/Tipsport.Tests.csproj -c Release
 dotnet build src/Jellyfin.Plugin.Tipsport/Jellyfin.Plugin.Tipsport.csproj -c Release
+node tools/test-login-form.mjs
 python3 tools/package.py
 ```
 
@@ -82,6 +94,8 @@ Výstup vznikne v `.artifacts`. Sestavení je nezávislé na konkrétní instala
 Testy pokrývají parsování programu bez skóre, výběr správného živého zápasu, více současných čtenářů, odmítnutí druhého zápasu, dokončení starého vstupu před spuštěním nového, uvolnění po posledním divákovi, šifrované uložení relace, omezení interních rozhraní a oprávnění správce. Síťové testy s reálným účtem a zařízeními jsou samostatný krok; jednotkové testy je nenahrazují.
 
 ## Stav vydání
+
+Verze **0.3.0.0**: všech 195 testů .NET a samostatná kontrola skutečných přihlašovacích skriptů v syntetickém DOM prošly. Kontroly zahrnují odmítnutí anonymní relace, ochranu před přepsáním novějšího přihlášení, vazbu uloženého hesla na účet, HTTPS a administrátorská oprávnění, pozastavení po neúspěchu, sdílení obnovy i skryté ověřovací prvky a počáteční načítání stránky. Dne 2. 11. 2026 bylo na Windows / Jellyfin 12.4 ověřeno přihlášení z formuláře na iPhonu, šifrované uložení opt-in údajů, nové přihlášení pomocí uloženého hesla po restartu, následné spuštění stejné cesty obnovy jako při HTTP 401 a skutečné přehrávání A. Molčan–Droguet v prohlížeči (512×288). Nejde o dlouhodobý test vypršení všech relací ani o ověření každého účtu, CAPTCHA, Linuxu či kontejnerů. Nastavení kompatibility přehrávání iOS zůstává zachované.
 
 Verze **0.2.3.1** sdílí analýzu metadat mezi položkami stejného běžícího vstupu. Výsledky se kopírují, aby úpravy dat pro jednoho klienta neovlivnily ostatní; cache se nepoužije po změně vstupu, při obnově nebo po dvou minutách. V diagnostice přibyly počty využití cache a nových analýz.
 

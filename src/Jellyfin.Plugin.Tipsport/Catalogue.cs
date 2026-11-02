@@ -3,7 +3,10 @@ using System.Text.Json;
 
 namespace Jellyfin.Plugin.Tipsport;
 
-public sealed class TipsportException(string message) : Exception(message);
+public sealed class TipsportException(string message, bool authenticationRequired = false) : Exception(message)
+{
+    public bool AuthenticationRequired { get; } = authenticationRequired;
+}
 public sealed record SportMatch(string Id, string Name, string SportId, string Sport, string Competition, bool Live, DateTimeOffset? Start, string SportGroup = "", bool Ended = false);
 
 public static class Catalogue

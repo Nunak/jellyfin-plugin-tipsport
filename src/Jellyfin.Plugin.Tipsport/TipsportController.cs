@@ -16,7 +16,7 @@ public sealed class TipsportController(TipsportClient client, SessionStore sessi
 
     [HttpGet("status")]
     [Authorize(Policy = Policies.RequiresElevation)]
-    public object Status() => new { HasSession = sessions.HasSession, Config.Enabled, Relay = relay.Status, MetadataCache = new { metadataCache.Hits, metadataCache.Misses }, ProbeMs = client.KnownProbeMs(relay.Status.MatchId), CurrentMatchName = client.KnownMatchName(relay.Status.MatchId), Quality = client.LastQuality, Warning = client.LastWarning, client.LastSuccessfulCatalogue, client.LastFailure, QualityMatchId = client.QualityMatchId, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u", GuideUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/guide.xml" };
+    public object Status() => new { HasSession = sessions.HasSession, client.AuthenticationRequired, Config.Enabled, Relay = relay.Status, MetadataCache = new { metadataCache.Hits, metadataCache.Misses }, ProbeMs = client.KnownProbeMs(relay.Status.MatchId), CurrentMatchName = client.KnownMatchName(relay.Status.MatchId), Quality = client.LastQuality, Warning = client.LastWarning, client.LastSuccessfulCatalogue, client.LastFailure, QualityMatchId = client.QualityMatchId, PlaylistUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/channels.m3u", GuideUrl = TipsportChannel.LocalBase(host) + "/Plugins/Tipsport/guide.xml" };
 
     [HttpGet("diagnostics")]
     [Authorize(Policy = Policies.RequiresElevation)]

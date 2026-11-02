@@ -70,7 +70,7 @@ internal static class ProviderHttp
             await drainError.ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             if (process.ExitCode != 0) throw new TipsportException("Systémový HTTP klient přenos nedokončil (kód " + process.ExitCode + ").");
-            return ParseText(output.ToArray());
+            return ParseText(output.ToArray(), session != null);
         }
         finally
         {
@@ -88,7 +88,7 @@ internal static class ProviderHttp
         try { return JsonDocument.Parse(ParseText(output)); }
         catch (JsonException) { throw new TipsportException("Poskytovatel nevrátil rozpoznanou odpověď."); }
     }
-    internal static string ParseText(byte[] output)
+    internal static string ParseText(byte[] output, bool authenticated = true)
     {
         if (output.Length < 4 || output[^4] != (byte)'\n' || !int.TryParse(Encoding.ASCII.GetString(output[^3..]), out var status))
             throw new TipsportException("HTTP klient nevrátil stav odpovědi.");
@@ -97,7 +97,9 @@ internal static class ProviderHttp
             var body = Encoding.UTF8.GetString(output, 0, Math.Min(output.Length - 4, 32768));
             if (body.Contains("cf-chl", StringComparison.OrdinalIgnoreCase) || body.Contains("challenge-platform", StringComparison.OrdinalIgnoreCase))
                 throw new TipsportException("Webová ochrana Tipsportu vyžaduje ověření v prohlížeči. Relace samotná pro tento HTTP klient nestačí.");
-            throw new TipsportException("Poskytovatel vrátil HTTP " + status + ". Ověřte přihlášenou relaci a dostupnost služby.");
+            throw new TipsportException(status == 401 && authenticated
+                ? "Přihlášení k Tipsportu už neplatí (HTTP 401). Správce jej obnoví tlačítkem Přihlásit k Tipsportu v nastavení pluginu."
+                : "Poskytovatel vrátil HTTP " + status + ". Ověřte dostupnost služby.", status == 401 && authenticated);
         }
         return Encoding.UTF8.GetString(output, 0, output.Length - 4);
     }

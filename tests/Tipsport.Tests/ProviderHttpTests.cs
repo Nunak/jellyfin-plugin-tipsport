@@ -28,4 +28,12 @@ public class ProviderHttpTests
     {
         Assert.Equal("abc\\\\def\\\"ghi", ProviderHttp.Escape("abc\\def\"ghi"));
     }
+    [Fact] public void OnlyUnauthorizedResponsesRequestSessionRenewal()
+    {
+        Assert.True(Assert.Throws<TipsportException>(() => ProviderHttp.Parse(Encoding.UTF8.GetBytes("private-body\n401"))).AuthenticationRequired);
+        Assert.False(Assert.Throws<TipsportException>(() => ProviderHttp.Parse(Encoding.UTF8.GetBytes("private-body\n403"))).AuthenticationRequired);
+        Assert.False(Assert.Throws<TipsportException>(() => ProviderHttp.Parse(Encoding.UTF8.GetBytes("private-body\n503"))).AuthenticationRequired);
+        Assert.False(Assert.Throws<TipsportException>(() => ProviderHttp.Parse(Encoding.UTF8.GetBytes("cf-chl-private-body\n403"))).AuthenticationRequired);
+        Assert.False(Assert.Throws<TipsportException>(() => ProviderHttp.ParseText(Encoding.UTF8.GetBytes("private-cdn-body\n401"), authenticated: false)).AuthenticationRequired);
+    }
 }

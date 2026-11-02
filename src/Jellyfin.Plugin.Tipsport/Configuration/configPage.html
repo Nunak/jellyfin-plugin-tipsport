@@ -6,6 +6,33 @@
   <div data-role="content"><div class="content-primary">
     <h2>Tipsport</h2>
     <p>Neoficiální plugin. Stejný zápas může sledovat více diváků; současně se načítá nejvýše jeden přenos z vašeho účtu.</p>
+    <h3>Přihlášení k Tipsportu</h3>
+    <form id="TipsportPasswordForm" autocomplete="off">
+      <h4>Z tohoto zařízení, i přes mobilní data</h4>
+      <p>Zadejte údaje svého účtu Tipsportu. Přihlášení provede váš server Jellyfin. Dostupné pouze správci přes HTTPS.</p>
+      <div class="inputContainer"><label class="inputLabel" for="TipsportUsername">E-mail nebo přihlašovací jméno Tipsportu</label><input is="emby-input" type="text" id="TipsportUsername" maxlength="254" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+      <div class="inputContainer"><label class="inputLabel" for="TipsportPassword">Heslo k Tipsportu</label><input is="emby-input" type="password" id="TipsportPassword" maxlength="1024" autocomplete="off" required></div>
+      <div class="checkboxContainer checkboxContainer-withDescription"><label><input is="emby-checkbox" type="checkbox" id="TipsportRemember"><span>Šifrovaně uložit pro automatické přihlášení</span></label><div class="fieldDescription">Volitelné. Uloží se až po úspěšném ověření. Bez této volby se heslo použije jen pro tento pokus. CAPTCHA ani další ověření se neobchází.</div></div>
+      <button is="emby-button" type="submit" id="TipsportPasswordLogin" class="raised block"><span>Přihlásit z tohoto zařízení</span></button>
+      <p id="TipsportPasswordStatus" role="status" aria-live="polite"></p>
+      <p id="TipsportCredentialStatus" role="status"></p>
+      <button is="emby-button" type="button" id="TipsportRenewLogin" class="raised block"><span>Obnovit uložené přihlášení</span></button>
+      <button is="emby-button" type="button" id="TipsportForgetCredentials" class="raised block"><span>Odebrat uložené heslo</span></button>
+    </form>
+    <h4>Bez předání hesla pluginu</h4>
+    <p>Otevřete přihlašovací okno na počítači, kde běží Jellyfin. V něm se běžně přihlaste k Tipsportu. Plugin přihlášení převezme automaticky; heslo zadáváte pouze Tipsportu. Diváci používají své účty Jellyfinu.</p>
+    <button is="emby-button" type="button" id="TipsportLogin" class="raised block"><span>Přihlásit k Tipsportu</span></button>
+    <p id="TipsportLoginStatus" role="status" aria-live="polite"></p>
+    <p>Okno se otevře na serveru, nikoli na telefonu správce. Na serveru musí být přihlášená plocha a Chrome nebo Edge. Plugin používá vlastní profil pouze pro Tipsport. Při vypršení relace zkusí obnovu z tohoto profilu, případně z výslovně uložených údajů. Pokud Tipsport vyžádá CAPTCHA nebo další ověření, zatím je nutné dokončit je v okně na serveru.</p>
+    <details><summary>Pokročilá správa relace</summary>
+    <p>Pro převzetí ze starší instalace nebo server bez přihlašovacího okna. Běžné přihlášení výše nevyžaduje hledání cookie.</p>
+    <form id="TipsportSessionForm">
+      <div class="inputContainer"><label class="inputLabel" for="TipsportSession">JSESSIONID</label><input is="emby-input" id="TipsportSession" type="password" autocomplete="off"><div class="fieldDescription">Pouze hodnota cookie. Uložená relace se zpět nezobrazuje.</div></div>
+      <button is="emby-button" type="submit" class="raised block"><span>Uložit relaci</span></button>
+    </form>
+    <button is="emby-button" type="button" id="TipsportImport" class="raised block"><span>Převzít existující relaci z Kodi na tomto serveru</span></button>
+    </details>
+    <h3>Nastavení nabídky a přehrávání</h3>
     <form id="TipsportConfigForm">
       <div class="checkboxContainer"><label class="emby-checkbox-label"><input id="TipsportEnabled" is="emby-checkbox" type="checkbox"><span>Zapnout Tipsport</span></label></div>
       <div class="selectContainer"><label class="selectLabel" for="TipsportRegion">Účet Tipsportu</label><select is="emby-select" id="TipsportRegion"><option value="CZ">Tipsport.cz</option><option value="SK">Tipsport.sk</option></select></div>
@@ -23,13 +50,6 @@
     <p>Menší zásoba vstupu může snížit zpoždění, ale hůře snáší krátké výpadky sítě. Výchozí nastavení je vypnuté. Platí až při příštím spuštění společného zdroje; nemění kvalitu obrazu.</p>
       <button is="emby-button" type="submit" class="raised button-submit block"><span>Uložit nastavení</span></button>
     </form>
-    <h3>Přihlášená relace</h3>
-    <p>V běžném prohlížeči se přihlaste ke svému Tipsport účtu a předejte hodnotu cookie JSESSIONID. Plugin neukládá heslo k Tipsportu. Když relace vyprší, předejte novou.</p>
-    <form id="TipsportSessionForm">
-      <div class="inputContainer"><label class="inputLabel" for="TipsportSession">JSESSIONID</label><input is="emby-input" id="TipsportSession" type="password" autocomplete="off"><div class="fieldDescription">Pouze hodnota cookie. Uložená relace se zpět nezobrazuje.</div></div>
-      <button is="emby-button" type="submit" class="raised block"><span>Uložit relaci</span></button>
-    </form>
-    <button is="emby-button" type="button" id="TipsportImport" class="raised block"><span>Převzít existující relaci z Kodi na tomto serveru</span></button>
     <h3>Ověření</h3>
     <p id="TipsportStatus" role="status" aria-live="polite"></p>
     <p id="TipsportWarning" role="alert" style="color:#ffb74d"></p>
@@ -65,13 +85,45 @@
         }).catch(function () {});
       }
     }
+    function loginFailure(error) {
+      var message = 'Přihlášení se nepodařilo zahájit. Ověřte spojení se serverem.';
+      field('PasswordStatus').textContent = message; field('LoginStatus').textContent = message;
+      if (error && typeof error.json === 'function') error.json().then(function (body) {
+        var value = body.Message || body.message;
+        if (typeof value === 'string') { field('PasswordStatus').textContent = value; field('LoginStatus').textContent = value; }
+      }).catch(function () {});
+    }
     var currentNames = {};
     function catalogue() { return api('catalogue').then(function(c) {
       currentNames = {}; (c.Matches || []).forEach(function(m) { currentNames[m.Id] = m.Name; });
       field('Matches').textContent = (c.Matches || []).filter(function(m) { return m.Live; }).map(function(m) { return m.Name + ' (' + m.Sport + ')'; }).slice(0, 20).join(' · ') + ((c.Live || 0) > 20 ? ' … Celkem živě: ' + c.Live + '. Úplná nabídka je v knihovně Tipsport.' : '') || 'Žádný živý zápas.';
       return status();
     }); }
-    var refreshTimer;
+    var refreshTimer, loginTimer, lastLoginConfirmation, loginPageActive = false;
+    function loginStatus() {
+      clearTimeout(loginTimer);
+      if (!loginPageActive) return Promise.resolve();
+      return api('login').then(function (s) {
+        field('LoginStatus').textContent = s.Message || '';
+        field('PasswordStatus').textContent = s.Message || '';
+        field('Login').disabled = !s.Available || s.Active;
+        field('PasswordLogin').disabled = !s.Available || s.Active || location.protocol !== 'https:';
+        field('Username').disabled = location.protocol !== 'https:';
+        field('Password').disabled = location.protocol !== 'https:';
+        field('ForgetCredentials').disabled = s.Active || !s.SavedPassword;
+        field('RenewLogin').disabled = s.Active || !s.Available || !s.RecoveryAvailable;
+        field('CredentialStatus').textContent = location.protocol !== 'https:' ? 'Pro zadání hesla otevřete veřejnou HTTPS adresu Jellyfinu.' : s.AutomaticLoginPaused ? 'Automatické přihlášení je po neúspěšném pokusu pozastavené. Ověřte údaje a přihlaste se znovu.' : s.AutomaticLogin ? 'Údaje pro automatické přihlášení jsou šifrovaně uložené.' : s.SavedPassword ? 'Uložené heslo není spojené s aktuální relací. Znovu se přihlaste nebo je odeberte.' : 'Heslo pro automatické přihlášení není uložené pro aktuální relaci.';
+        if (s.State === 'signed-in' && s.LastConfirmed && lastLoginConfirmation !== s.LastConfirmed) {
+          lastLoginConfirmation = s.LastConfirmed;
+          catalogue().catch(failure);
+        }
+        if (loginPageActive) loginTimer = setTimeout(loginStatus, s.Active ? 2000 : 15000);
+      }).catch(function () {
+        field('LoginStatus').textContent = 'Stav přihlašovacího okna se nepodařilo načíst.';
+        field('PasswordStatus').textContent = 'Stav přihlášení se nepodařilo načíst. Ověřte spojení se serverem.';
+        if (loginPageActive) loginTimer = setTimeout(loginStatus, 15000);
+      });
+    }
     function status() { return api('status').then(function (s) {
       field('Status').textContent = (s.HasSession ? 'Relace je uložená. ' : 'Relace zatím není uložená. ') + (s.Relay.Active ? 'Běží jeden sdílený vstup. Připojení Jellyfinu: ' + s.Relay.Readers + '.' : 'Žádný přenos právě neběží.') + ' Spuštění zdroje od startu serveru: ' + s.Relay.Acquisitions + '.';
       field('Playlist').value = s.PlaylistUrl;
@@ -84,6 +136,8 @@
 
     }); }
     page.addEventListener('pageshow', function () {
+      loginPageActive = true;
+      loginStatus();
       ApiClient.getPluginConfiguration(id).then(function (c) {
         field('Enabled').checked = c.Enabled; field('Region').value = c.Region;
         field('Team').value = c.FavouriteTeam; field('Teams').value = c.AdditionalFavouriteTeams || ''; field('Upcoming').checked = c.ShowUpcoming;
@@ -95,7 +149,26 @@
       clearInterval(refreshTimer);
       refreshTimer = setInterval(function () { catalogue().catch(failure); }, 15000);
     });
-    page.addEventListener('pagehide', function () { clearInterval(refreshTimer); });
+    page.addEventListener('pagehide', function () { loginPageActive = false; clearInterval(refreshTimer); clearTimeout(loginTimer); field('Password').value = ''; });
+    page.querySelector('#TipsportPasswordForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (location.protocol !== 'https:') return;
+      var body = {Username: field('Username').value, Password: field('Password').value, Remember: field('Remember').checked};
+      field('Password').value = ''; field('PasswordLogin').disabled = true;
+      field('PasswordStatus').textContent = 'Odesílám přihlášení serveru…';
+      var request = api('login/credentials', 'POST', body); body.Password = '';
+      request.then(loginStatus).catch(function (error) { field('PasswordLogin').disabled = false; loginFailure(error); });
+    });
+    field('ForgetCredentials').addEventListener('click', function () { api('login/credentials', 'DELETE').then(loginStatus).catch(failure); });
+    field('RenewLogin').addEventListener('click', function () {
+      field('RenewLogin').disabled = true;
+      field('PasswordStatus').textContent = 'Obnovuji uložené přihlášení na serveru…';
+      api('login/renew', 'POST').then(loginStatus).catch(function (error) { loginStatus().finally(function () { loginFailure(error); }); });
+    });
+    field('Login').addEventListener('click', function () {
+      field('Login').disabled = true;
+      api('login', 'POST').then(loginStatus).catch(function (error) { field('Login').disabled = false; loginFailure(error); });
+    });
     page.querySelector('#TipsportConfigForm').addEventListener('submit', function (e) {
       e.preventDefault(); Dashboard.showLoadingMsg();
       ApiClient.getPluginConfiguration(id).then(function (c) {

@@ -61,9 +61,11 @@ public sealed class TipsportChannel(TipsportClient client, SessionStore sessions
         }
         IReadOnlyList<SportMatch> matches;
         try { matches = await client.GetMatches(token).ConfigureAwait(false); }
-        catch (TipsportException)
+        catch (TipsportException e)
         {
-            items.Add(Folder("unavailable", "Tipsport není dostupný – požádejte správce o kontrolu přihlášení"));
+            items.Add(Folder("unavailable", e.AuthenticationRequired
+                ? "Přihlášení k Tipsportu vypršelo – správce se musí znovu přihlásit"
+                : "Tipsport není dostupný – požádejte správce o kontrolu služby"));
             return new() { Items = items, TotalRecordCount = items.Count };
         }
         if (string.IsNullOrEmpty(query.FolderId))

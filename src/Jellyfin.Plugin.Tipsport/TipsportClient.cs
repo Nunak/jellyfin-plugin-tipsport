@@ -10,6 +10,7 @@ public sealed class TipsportClient : IDisposable
 {
     public const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0";
     private readonly SessionStore _sessions;
+    private readonly BrowserLogin _login;
     private readonly IServerApplicationHost _host;
     private sealed record SelectedMaster(string Key, string Playlist, DateTimeOffset Expires);
     private SelectedMaster? _selectedMaster;
@@ -26,6 +27,7 @@ public sealed class TipsportClient : IDisposable
     private int? _sourceBitrate;
     internal int? KnownSourceBitrate(string id) => QualityMatchId == id ? _sourceBitrate : null;
     public string? LastWarning { get; private set; }
+    public bool AuthenticationRequired { get; private set; }
     public DateTimeOffset? LastSuccessfulCatalogue { get; private set; }
     public DateTimeOffset? LastFailure { get; private set; }
     public string? LastQuality { get; private set; }
@@ -34,9 +36,10 @@ public sealed class TipsportClient : IDisposable
     internal long? KnownProbeMs(string? matchId) => matchId != null && _probeMatchId == matchId ? Interlocked.Read(ref _probeMs) : null;
     internal void RecordProbe(string matchId, long elapsedMs) { Interlocked.Exchange(ref _probeMs, elapsedMs); _probeMatchId = matchId; }
     private static PluginConfiguration Config => Plugin.Instance?.Configuration ?? new();
-    public TipsportClient(SessionStore sessions, IServerApplicationHost host)
+    public TipsportClient(SessionStore sessions, IServerApplicationHost host, BrowserLogin login)
     {
-        _sessions = sessions; _host = host;
+        _sessions = sessions; _host = host; _login = login;
+        _sessions.Changed += Invalidate;
         // Avoid HttpClientFactory URL logging: media URLs can contain signed credentials.
         _http = new(new SocketsHttpHandler
         {
@@ -44,10 +47,10 @@ public sealed class TipsportClient : IDisposable
             ConnectCallback = ConnectPublic
         }) { Timeout = TimeSpan.FromSeconds(15) };
     }
-    public void Invalidate() { _cacheUntil = DateTimeOffset.MinValue; LastWarning = null; _streamWarning = false; }
+    public void Invalidate() { _cacheUntil = DateTimeOffset.MinValue; LastWarning = null; _streamWarning = false; AuthenticationRequired = false; }
     public async Task<IReadOnlyList<SportMatch>> GetMatches(CancellationToken token)
     {
-        if (!_sessions.HasSession) throw new TipsportException("Přihlášení k Tipsportu chybí. Požádejte správce o obnovení relace.");
+        if (!_sessions.HasSession) throw new TipsportException("Přihlášení k Tipsportu chybí. Správce použije tlačítko Přihlásit k Tipsportu v nastavení pluginu.", true);
         if (!Config.Enabled) throw new TipsportException("Plugin není zapnutý.");
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
@@ -62,13 +65,13 @@ public sealed class TipsportClient : IDisposable
             _cacheUntil = DateTimeOffset.UtcNow.AddSeconds(15);
             return Filter(_cached);
         }
-        catch (TipsportException e) { Warn(e.Message); throw; }
+        catch (TipsportException e) { AuthenticationRequired = e.AuthenticationRequired; Warn(e.Message); throw; }
         finally { _gate.Release(); }
     }
     private void Warn(string? message = null)
     {
         LastFailure = DateTimeOffset.UtcNow;
-        LastWarning = message ?? "Tipsport odmítl požadavek nebo není dostupný. Ověřte přihlášení, oprávnění ke sledování a dostupnost služby. Po vypršení relace vložte novou cookie.";
+        LastWarning = message ?? "Tipsport odmítl požadavek nebo není dostupný. Ověřte oprávnění ke sledování a dostupnost služby. Přihlášení správce obnoví tlačítkem Přihlásit k Tipsportu v nastavení pluginu.";
     }
     private static IReadOnlyList<SportMatch> Filter(IReadOnlyList<SportMatch> matches)
     {
@@ -84,7 +87,7 @@ public sealed class TipsportClient : IDisposable
             LastWarning = null; _streamWarning = false;
             return uri;
         }
-        catch (TipsportException e) { _streamWarning = true; Warn(e.Message); throw; }
+        catch (TipsportException e) { AuthenticationRequired = e.AuthenticationRequired; _streamWarning = true; Warn(e.Message); throw; }
     }
     private async Task<Uri> ResolveCore(string matchId, CancellationToken token)
     {
@@ -134,6 +137,23 @@ public sealed class TipsportClient : IDisposable
     }
     private async Task<JsonDocument> Fetch(Uri uri, bool authenticated, CancellationToken token)
     {
+        var revision = _sessions.Revision;
+        try { return await FetchCore(uri, authenticated, token).ConfigureAwait(false); }
+        catch (TipsportException e) when (authenticated && e.AuthenticationRequired)
+        {
+            AuthenticationRequired = true;
+            if (_sessions.Revision == revision)
+            {
+                var recovered = await _login.TryRecover(Config.Region, token).ConfigureAwait(false);
+                if (!recovered && _sessions.Revision == revision) throw;
+            }
+            Invalidate();
+            // Exactly one retry. A failed recovery never loops or attempts to log in with a password.
+            return await FetchCore(uri, authenticated, token).ConfigureAwait(false);
+        }
+    }
+    private async Task<JsonDocument> FetchCore(Uri uri, bool authenticated, CancellationToken token)
+    {
         if (ProviderHttp.CurlPath is { } curl)
         {
             try { return await ProviderHttp.Fetch(curl, uri, authenticated ? _sessions.Load() : null, token).ConfigureAwait(false); }
@@ -158,7 +178,7 @@ public sealed class TipsportClient : IDisposable
                 throw new TipsportException("Webová ochrana Tipsportu vyžaduje ověření v prohlížeči. Relace samotná pro tento HTTP klient nestačí.");
             if (!response.IsSuccessStatusCode) throw new TipsportException(response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
                 ? "Tipsport odmítl požadavek (HTTP " + (int)response.StatusCode + ", " + (response.Content.Headers.ContentType?.MediaType == "application/json" ? "API" : "webová odpověď") + "). Zkontrolujte platnost relace a dostupnost přenosu ve svém účtu."
-                : "Poskytovatel vrátil HTTP " + (int)response.StatusCode + ".");
+                : "Poskytovatel vrátil HTTP " + (int)response.StatusCode + ".", authenticated && response.StatusCode == HttpStatusCode.Unauthorized);
             if (response.Content.Headers.ContentLength > 8 * 1024 * 1024) throw new TipsportException("Odpověď poskytovatele je příliš velká.");
             await using var stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             using var body = new MemoryStream();
@@ -217,5 +237,5 @@ public sealed class TipsportClient : IDisposable
         }
         throw new HttpRequestException("Provider connection failed.");
     }
-    public void Dispose() { _http.Dispose(); _gate.Dispose(); }
+    public void Dispose() { _sessions.Changed -= Invalidate; _http.Dispose(); _gate.Dispose(); }
 }
