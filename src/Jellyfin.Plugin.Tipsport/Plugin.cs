@@ -19,6 +19,8 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public bool Enabled { get; set; }
+    public bool ShareWithAllTvUsers { get; set; } = true;
+    public bool ManageOwnTvTuners { get; set; } = true;
     public string Region { get; set; } = "CZ";
     public string FavouriteTeam { get; set; } = "";
     public string AdditionalFavouriteTeams { get; set; } = "";
@@ -29,6 +31,6 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public int MaximumHeight { get; set; }
     public bool LowLatencyStart { get; set; }
     public bool ShortHlsSegments { get; set; }
-    public bool IosTransportStream { get; set; }
+    public bool IosTransportStream { get; set; } = true;
     public string SportIds { get; set; } = "";
 }

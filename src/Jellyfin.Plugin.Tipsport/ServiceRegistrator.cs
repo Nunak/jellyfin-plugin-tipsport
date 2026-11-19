@@ -25,6 +25,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<IRelaySourceFactory, FfmpegSourceFactory>();
         services.AddSingleton<SharedRelay>();
         services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<SharedRelay>());
+        services.AddHostedService<DefaultSetup>();
         services.AddSingleton<IChannel, TipsportChannel>();
     }
 }

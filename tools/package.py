@@ -15,10 +15,10 @@ out = root / ".artifacts"
 folder = out / name
 folder.mkdir(parents=True, exist_ok=True)
 meta = {
-    "category": "Live TV", "changelog": "Absorb high-bitrate HLS bursts in a bounded per-reader buffer instead of disconnecting at 128 pipe reads. Preserve one shared source, source quality and independent healthy viewers. Add numeric queue-overrun diagnostics and safe server warnings.",
+    "category": "Live TV", "changelog": "Fix multi-viewer Live TV setup: maintain unlimited local M3U tuner handles with sharing while the relay still enforces one provider input. Default Tipsport channel access for enabled TV viewers, including new users, with opt-out controls. Enable iOS compatibility in new configurations and preserve explicit saved choices.",
     "description": "Unofficial Tipsport catalogue and shared live streaming using your own account.",
     "guid": "7c761c82-7b32-4b82-bb8f-49a6b0f319e7", "name": "Tipsport", "overview": "Native sports catalogue and one shared input",
-    "owner": "Nunak", "status": "Active", "targetAbi": "12.4.0.0", "timestamp": "2026-11-02T00:00:00Z", "version": version
+    "owner": "Nunak", "status": "Active", "targetAbi": "12.4.0.0", "timestamp": "2026-11-19T00:00:00Z", "version": version
 }
 files = {"Jellyfin.Plugin.Tipsport.dll": source.read_bytes(), "meta.json": (json.dumps(meta, indent=2) + "\n").encode()}
 for doc in ("LICENSE", "NOTICE.md", "README.md"):
@@ -29,7 +29,7 @@ archive = out / (name + ".zip")
 with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
     for filename, data in sorted(files.items()):
         # Jellyfin extracts into its own versioned directory; DLL must be at ZIP root.
-        info = ZipInfo(filename, date_time=(2026, 11, 2, 0, 0, 0))
+        info = ZipInfo(filename, date_time=(2026, 11, 19, 0, 0, 0))
         info.compress_type = ZIP_DEFLATED
         info.external_attr = 0o100644 << 16
         bundle.writestr(info, data)
