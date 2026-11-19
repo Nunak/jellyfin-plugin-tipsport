@@ -8,6 +8,14 @@
     "category": "Live TV",
     "versions": [
       {
+        "version": "0.3.1.0",
+        "changelog": "Fix multi-viewer Live TV setup: maintain unlimited local M3U tuner handles with sharing while the relay still enforces one provider input. Default Tipsport channel access for enabled TV viewers, including new users, with opt-out controls. Enable iOS compatibility in new configurations and preserve explicit saved choices.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Nunak/jellyfin-plugin-tipsport/releases/download/v0.3.1.0/Tipsport_0.3.1.0.zip",
+        "checksum": "25f0c3db0eb8bcd48ca7603ed8c9654d",
+        "timestamp": "2026-11-19T00:00:00Z"
+      },
+      {
         "version": "0.3.0.1",
         "changelog": "Absorb high-bitrate HLS bursts in a bounded per-reader buffer instead of disconnecting at 128 pipe reads. Preserve one shared source, source quality and independent healthy viewers. Add numeric queue-overrun diagnostics and safe server warnings.",
         "targetAbi": "12.4.0.0",
